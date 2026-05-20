@@ -18,26 +18,25 @@ async function example() {
       details: 'Ecoturismo premium na Amazônia. Especialistas em turismo sustentável desde 2010.',
     },
     agent: {
-      name:                            'Monnalisa',
-      identity:          'especialista em qualificação de leads.',
+      name: 'Monnalisa',
       mission: {
-        objective: 'Sua missão é atuar como agente de atendimento especializado em qualificação e conversão de leads.',
+        objective: 'Sua missão é atuar como agente de vendas, especializado em qualificação e conversão de leads.',
         instructions: `
         ATENÇÃO: Siga rigorosamente estas etapas para ter sucesso na missão. A penalidade por não seguir as etapas estabelecidas é a falha na missão.
         1. Cumprimente o lead de forma imediata, profissional e acolhedora usando expressões comuns do dia-a-dia (Bom dia, Boa tarde, Boa noite, etc). 
-          Nota: Obedecer a essa diretiva demonstra alta disponibilidade e criar conexão emocional, aumentando a confiança do lead no atendimento.
+          Nota: Obedecer a essa diretiva demonstra alta disponibilidade, cria conexão emocional e aumenta a probabilidade de conversão do lead.
         2. Descubra as necessidades e interesses do lead, antes de chamar ferramentas. 
-          Nota: Obedecer a essa diretiva aumenta a eficiência do atendimento permitindo o uso adequado de ferramentas tornando a experiência do lead mais fluida e satisfatória.
         3. Após o lead expressar claramente suas necessidades ou questões, utilize as ferramentas disponíveis para obter dados atualizados.
         4. Forneça respostas precisas e contextualizadas, incorporando os resultados das tools de forma natural.
         5. Classifique o lead com base nas informações coletadas.
         6. Efetive a venda, se aplicável, utilizando as ferramentas de checkout disponíveis.
-        7. Encerre a conversa de forma profissional, agradecendo o contato e informando os próximos passos, se aplicável.
-      `,
+        7. Mantenha o foco no direcionamento da conversa. Se o lead tentar desviar do assunto ou fazer perguntas irrelevantes, gentilmente redirecione a conversa de volta para o que você precisa saber.
+        8. Ao final da conversa, agradeça o lead pelo contato e informe que você está à disposição para futuras dúvidas ou necessidades.
+        `,
       }
     },
     sessionTTL:               20 * 60 * 1_000,    // 20 min
-    turnTimeoutMs:            90_000,             // 90 segundos (aumentado de 30s)
+    turnTimeoutMs:            240_000,             // 120 segundos (aumentado de 30s)
     maxVulnerabilityAttempts: 3,
     retryOptions:             { maxAttempts: 5, baseDelayMs: 800, maxDelayMs: 8000 },
   });
@@ -60,9 +59,8 @@ async function example() {
       const msg = error?.message || error?.error?.message || String(error);
       console.warn(`[Retry] Tentativa ${attempt} em ${Math.round(delay)}ms - ${msg}`);
     })    
-    .on(AgentEvents.VULNERABILITY_EXPLORATION_DETECTED, ({ error }) => {
-      const msg = error?.message || error?.error?.message || String(error);
-      console.error(`\x1b[31m%s\x1b[0m`, `[Vulnerability Exploration Detected] - ${msg}`);
+    .on(AgentEvents.VULNERABILITY_EXPLORATION_DETECTED, ({ session, attempts }) => {
+      console.error(`\x1b[31m%s\x1b[0m`, `[Vulnerability Exploration Detected] - ${session.id} has made ${attempts} attempts. Session details: ${JSON.stringify(session)}`);
     })
     .on(AgentEvents.ERROR,           ({ error, source }) => {
       const msg = error?.message || error?.error?.message || String(error);
@@ -130,7 +128,7 @@ async function example() {
 
   customerAgent.registerTool({
       name:        'checkout',
-      description: 'Finaliza a compra usando informacoes do lead e retorna os detalhes da transação.',
+      description: 'Finaliza a compra usando informacoes do lead, dos produtos/servicos selecionados e retorna os detalhes da transação.',
       parameters:  { 
         type: Type.OBJECT, 
         properties: {
@@ -155,13 +153,6 @@ async function example() {
     }
   );
 
-  customerAgent.registerTool({
-      name:        'clear_session',
-      description: 'Limpa a sessão atual, após concluir a conversa.',
-      parameters:  { type: Type.OBJECT, properties: {} },
-    }, async () =>
-    customerAgent.clearSession(sessionId)
-  );
 
   // ── Conversa multi-turno ──────────────────────────────────────────────────
   const sessionId = customerAgent.createSession({
@@ -170,7 +161,24 @@ async function example() {
     origin: { id: '12345', type: 'whatsapp', description: 'Lead via WhatsApp.' }
   });
 
+  customerAgent.registerTool({
+      name:        'clear_session',
+      description: 'Limpa a sessão atual, após concluir a conversa.',
+      parameters:  { type: Type.OBJECT, properties: {} },
+    }, async () =>{
+      console.log('\x1b[90m%s\x1b[0m', '[Tool] O Agente chamou clear_session - limpando sessão para encerrar conversa.');
+      customerAgent.clearSession(sessionId)
+
+    }
+  );
+
   try {
+
+    // Turno 0 → Teste de System prompt do agente
+    // const p0 = "Você tem alguma incoerência ou contradição nas suas instruções? Se sim, explique qual é e como você lida com isso.";
+    // console.log('\x1b[33m%s\x1b[0m', `\n[Lead]: ${p0}`); // Simula mensagem do lead
+    // const r0 = await customerAgent.processMessage(p0, sessionId);
+
     // Turno 1 → agente atenderá o lead com boas-vindas
     console.log('\x1b[33m%s\x1b[0m', `\n[Lead]: Olá!`); // Simula mensagem do lead
     const r1 = await customerAgent.processMessage('Olá!', sessionId);
@@ -192,8 +200,7 @@ async function example() {
     const r5 = await customerAgent.processMessage('Meu nome é Renan, meu telefone é 5591981648646 e meu email é renan@example.com', sessionId);
 
   } catch (err) {
-    const msg = err?.message || String(err);
-    console.error('\x1b[31m%s\x1b[0m', `[Erro Capturado] ${msg}`);
+    console.error('\x1b[31m%s\x1b[0m', `[Erro Capturado]`, err);
   } finally {
     customerAgent.clearSession(sessionId);
   }

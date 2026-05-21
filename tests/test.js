@@ -92,9 +92,15 @@ async function example() {
       console.log(`\x1b[36m%s\x1b[0m`, `  → Marcado em: ${scheduledAt}`);
     })
     .on(AgentEvents.RECOVERY_ATTEMPT, ({ sessionId, attempt, status, message, attemptedAt }) => {
-      if (status === 'cleared') {
+      if (status === 'recovered') {
         console.log(`\x1b[32m%s\x1b[0m`, `[✅ Recovery Bem-sucedido] Sessão ${sessionId}`);
         console.log(`\x1b[32m%s\x1b[0m`, `  → Status: ${message}`);
+        console.log(`\x1b[32m%s\x1b[0m`, `  → Recuperado em: ${attemptedAt}`);
+      } else if (status === 'awaiting_lead_message') {
+        console.log(`\x1b[36m%s\x1b[0m`, `[🔄 Recovery Pronto] Sessão ${sessionId}`);
+        console.log(`\x1b[36m%s\x1b[0m`, `  → Tentativa #${attempt} completada`);
+        console.log(`\x1b[36m%s\x1b[0m`, `  → Status: ${message}`);
+        console.log(`\x1b[36m%s\x1b[0m`, `  → Horário: ${attemptedAt}`);
       } else {
         console.log(`\x1b[36m%s\x1b[0m`, `[🔄 Recovery Tentativa] Sessão ${sessionId}`);
         console.log(`\x1b[36m%s\x1b[0m`, `  → Tentativa #${attempt} em progresso`);
@@ -207,45 +213,43 @@ async function example() {
     }
   );
 
-  try {
+  // Turno 0 → Teste de System prompt do agente
+  // const p0 = "Você tem alguma incoerência ou contradição nas suas instruções? Se sim, explique qual é e como você lida com isso.";
+  // console.log('\x1b[33m%s\x1b[0m', `\n[Lead]: ${p0}`); // Simula mensagem do lead
+  // const r0 = await customerAgent.processMessage(p0, sessionId);
 
-    // Turno 0 → Teste de System prompt do agente
-    // const p0 = "Você tem alguma incoerência ou contradição nas suas instruções? Se sim, explique qual é e como você lida com isso.";
-    // console.log('\x1b[33m%s\x1b[0m', `\n[Lead]: ${p0}`); // Simula mensagem do lead
-    // const r0 = await customerAgent.processMessage(p0, sessionId);
+  // Observação: Qualquer erro durante processMessage agora resulta em:
+  //   1. Evento ERROR emitido com detalhes do erro
+  //   2. Evento SERVICE_UNAVAILABLE emitido
+  //   3. Resposta de indisponibilidade retornada ao lead (graceful degradation)
+  //   4. Recovery automático agendado (RECOVERY_SCHEDULED)
+  //   5. Timer dispara após X segundos (RECOVERY_ATTEMPT com status='awaiting_lead_message')
+  //   6. Próxima mensagem do lead tenta processar normalmente
+  //   7. Se bem-sucedido: RECOVERY_ATTEMPT com status='recovered' e inErrorState é zerado
+  //   8. Se falhar novamente: volta para passo 1 (erro é retentado indefinidamente)
+  //
+  // IMPORTANTE: As mensagens continuam sendo enfileiradas e processadas normalmente!
 
-    // Observação: Qualquer erro durante processMessage agora resulta em:
-    //   1. Evento ERROR emitido com detalhes do erro
-    //   2. Evento SERVICE_UNAVAILABLE emitido
-    //   3. Resposta de indisponibilidade retornada ao lead (graceful degradation)
-    //   4. Recovery automático agendado (RECOVERY_SCHEDULED)
-    //   5. Se recovery bem-sucedido, RECOVERY_ATTEMPT com status='cleared'
+  // Turno 1 → agente atenderá o lead com boas-vindas
+  console.log('\x1b[33m%s\x1b[0m', `\n[Lead]: Olá!`); // Simula mensagem do lead
+  const r1 = await customerAgent.processMessage('Olá!', sessionId);
 
-    // Turno 1 → agente atenderá o lead com boas-vindas
-    console.log('\x1b[33m%s\x1b[0m', `\n[Lead]: Olá!`); // Simula mensagem do lead
-    const r1 = await customerAgent.processMessage('Olá!', sessionId);
+  // Turno 2 → agente usará get_product_data
+  console.log('\x1b[33m%s\x1b[0m', `\n[Lead]: Quais os valores dos passeios de barco?`); // Simula mensagem do lead
+  const r2 = await customerAgent.processMessage('Quais os valores dos passeios de barco?', sessionId);
 
-    // Turno 2 → agente usará get_product_data
-    console.log('\x1b[33m%s\x1b[0m', `\n[Lead]: Quais os valores dos passeios de barco?`); // Simula mensagem do lead
-    const r2 = await customerAgent.processMessage('Quais os valores dos passeios de barco?', sessionId);
+  // Turno 3 → agente usará a tool recém criada programaticamente 'check_availability'
+  console.log('\x1b[33m%s\x1b[0m', `\n[Lead]: Tem disponibilidade para o dia 20 de maio?`); // Simula mensagem do lead
+  const r3 = await customerAgent.processMessage('Tem disponibilidade para o dia 20 de maio?', sessionId);
 
-    // Turno 3 → agente usará a tool recém criada programaticamente 'check_availability'
-    console.log('\x1b[33m%s\x1b[0m', `\n[Lead]: Tem disponibilidade para o dia 20 de maio?`); // Simula mensagem do lead
-    const r3 = await customerAgent.processMessage('Tem disponibilidade para o dia 20 de maio?', sessionId);
+  // Turno 4 - Cliente aceita a oferta
+  console.log('\x1b[33m%s\x1b[0m', `\n[Lead]: Perfeito, quero reservar!`); // Simula mensagem do lead
+  const r4 = await customerAgent.processMessage('Perfeito, quero reservar!', sessionId);
 
-    // Turno 4 - Cliente aceita a oferta
-    console.log('\x1b[33m%s\x1b[0m', `\n[Lead]: Perfeito, quero reservar!`); // Simula mensagem do lead
-    const r4 = await customerAgent.processMessage('Perfeito, quero reservar!', sessionId);
+  // Turno 5 - Cliente fornece informações para checkout
+  console.log('\x1b[33m%s\x1b[0m', `\n[Lead]: Meu nome é Renan, meu telefone é 5591981648646 e meu email é renan@example.com`); // Simula mensagem do lead
+  const r5 = await customerAgent.processMessage('Meu nome é Renan, meu telefone é 5591981648646 e meu email é renan@example.com', sessionId);
 
-    // Turno 5 - Cliente fornece informações para checkout
-    console.log('\x1b[33m%s\x1b[0m', `\n[Lead]: Meu nome é Renan, meu telefone é 5591981648646 e meu email é renan@example.com`); // Simula mensagem do lead
-    const r5 = await customerAgent.processMessage('Meu nome é Renan, meu telefone é 5591981648646 e meu email é renan@example.com', sessionId);
-
-  } catch (err) {
-    console.error('\x1b[31m%s\x1b[0m', `[Erro Capturado]`, err);
-  } finally {
-    customerAgent.clearSession(sessionId);
-  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

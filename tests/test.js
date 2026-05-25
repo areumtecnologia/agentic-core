@@ -250,6 +250,8 @@ async function example() {
   console.log('\x1b[33m%s\x1b[0m', `\n[Lead]: Meu nome é Renan, meu telefone é 5591981648646 e meu email é renan@example.com`); // Simula mensagem do lead
   const r5 = await customerAgent.processMessage('Meu nome é Renan, meu telefone é 5591981648646 e meu email é renan@example.com', sessionId);
 
+  // Mostra o numero de sessoes ativas concomitantes
+  console.log('\x1b[36m%s\x1b[0m', `\n[Sessões Ativas] ${customerAgent.activeSessionsCount()} sessão(ões) ativa(s) no momento.`);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

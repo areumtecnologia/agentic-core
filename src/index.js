@@ -355,6 +355,8 @@ class AutonomousCustomerServiceAgent extends EventEmitter {
   /** Número de sessões atualmente ativas. */
   get activeSessions() { return this.#sessions.size; }
 
+  // Um metodo para retornar o numero de sessoes ativas, para facilitar o monitoramento externo
+  activeSessionsCount() { return this.#sessions.size; }
   // ── Tool Registry ─────────────────────────────────────────────────────────
 
   /**

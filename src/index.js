@@ -256,6 +256,10 @@ class AutonomousCustomerServiceAgent extends EventEmitter {
    */
   createSession(id, user) {
     if (!id) throw new TypeError('[AgentCSA] Session ID is required.');
+    const existing = this.#sessions.get(id);
+    if (existing) {
+      throw new Error(`[AgentCSA] Session with ID "${id}" already exists for user "${existing.user.name}".`);
+    }
     const session = new AgentSession(id, user, (expId) => this.#onSessionExpired(expId));
     session.scheduleTTL(this.#sessionTTL);
     this.#sessions.set(id, session);

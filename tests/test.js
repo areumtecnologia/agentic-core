@@ -196,7 +196,7 @@ async function example() {
 
 
   // ── Conversa multi-turno ──────────────────────────────────────────────────
-  const sessionId = customerAgent.createSession(Date.now().toString(), {
+  const session = customerAgent.createSession(Date.now().toString(), {
     name:   'Renan',
     phone:  '5591981648646',
     origin: { id: '12345', type: 'whatsapp', description: 'Lead via WhatsApp.' }
@@ -208,7 +208,7 @@ async function example() {
       parameters:  { type: Type.OBJECT, properties: {} },
     }, async () =>{
       console.log('\x1b[90m%s\x1b[0m', '[Tool] O Agente chamou clear_session - limpando sessão para encerrar conversa.');
-      customerAgent.clearSession(sessionId)
+      customerAgent.clearSession(session.id)
 
     }
   );
@@ -232,23 +232,23 @@ async function example() {
 
   // Turno 1 → agente atenderá o lead com boas-vindas
   console.log('\x1b[33m%s\x1b[0m', `\n[Lead]: Olá!`); // Simula mensagem do lead
-  const r1 = await customerAgent.processMessage('Olá!', sessionId);
+  const r1 = await customerAgent.processMessage('Olá!', session.id);
 
   // Turno 2 → agente usará get_product_data
   console.log('\x1b[33m%s\x1b[0m', `\n[Lead]: Quais os valores dos passeios de barco?`); // Simula mensagem do lead
-  const r2 = await customerAgent.processMessage('Quais os valores dos passeios de barco?', sessionId);
+  const r2 = await customerAgent.processMessage('Quais os valores dos passeios de barco?', session.id);
 
   // Turno 3 → agente usará a tool recém criada programaticamente 'check_availability'
   console.log('\x1b[33m%s\x1b[0m', `\n[Lead]: Tem disponibilidade para o dia 30 de maio?`); // Simula mensagem do lead
-  const r3 = await customerAgent.processMessage('Tem disponibilidade para o dia 30 de maio?', sessionId);
+  const r3 = await customerAgent.processMessage('Tem disponibilidade para o dia 30 de maio?', session.id);
 
   // Turno 4 - Cliente aceita a oferta
   console.log('\x1b[33m%s\x1b[0m', `\n[Lead]: Perfeito, quero reservar!`); // Simula mensagem do lead
-  const r4 = await customerAgent.processMessage('Perfeito, quero reservar!', sessionId);
+  const r4 = await customerAgent.processMessage('Perfeito, quero reservar!', session.id);
 
   // Turno 5 - Cliente fornece informações para checkout
   console.log('\x1b[33m%s\x1b[0m', `\n[Lead]: Meu nome é Renan, meu telefone é 5591981648646 e meu email é renan@example.com`); // Simula mensagem do lead
-  const r5 = await customerAgent.processMessage('Meu nome é Renan, meu telefone é 5591981648646 e meu email é renan@example.com', sessionId);
+  const r5 = await customerAgent.processMessage('Meu nome é Renan, meu telefone é 5591981648646 e meu email é renan@example.com', session.id);
 
   // Mostra o numero de sessoes ativas concomitantes
   console.log('\x1b[36m%s\x1b[0m', `\n[Sessões Ativas] ${customerAgent.activeSessionsCount()} sessão(ões) ativa(s) no momento.`);

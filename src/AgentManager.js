@@ -1,4 +1,10 @@
-// Uma classe para armazenar e gerenciar agentes
+'use strict';
+
+const { AutonomousCustomerServiceAgent } = require('./AutonomousCustomerServiceAgent');
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AgentManager — armazena e gerencia múltiplas instâncias de agentes
+// ─────────────────────────────────────────────────────────────────────────────
 class AgentManager {
     constructor() {
         this.agents = new Map();

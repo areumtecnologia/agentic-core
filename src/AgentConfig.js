@@ -23,7 +23,7 @@ class AgentConfig {
                 objective: this.missionObjective,
                 instructions: this.missionInstructions
             },
-            reasoningLanguage: this.reasoningLanguage
+            reasoningLang: this.reasoningLanguage
         };
     }
 }

@@ -17,6 +17,30 @@ const { AutonomousCustomerServiceAgent, Type, AgentEvents, AgentConfig } = requi
 async function example() {
   const productCategories = ['Passeios', 'Trilhas', 'Hospedagem', 'VIP', 'Noturno', 'Luxo', 'Econômico', 'Iniciantes', 'Barco'];
 
+  const products = [
+    { id: 1, name: 'Passeios de Barco', price: 'R$ 200', details: 'Passeio de 4 horas pelos igarapés.', tags: ['Passeios', 'Barco'], daily_vacancies: 10 },
+    { id: 2, name: 'Trilhas', price: 'R$ 150', details: 'Trilha de 3 horas na floresta.', tags: ['Trilhas'], daily_vacancies: 10 },
+    { id: 3, name: 'Hospedagem', price: 'R$ 500/noite', details: 'Quarto confortável com vista para o rio.', tags: ['Hospedagem'], daily_vacancies: 10 },
+    { id: 4, name: 'Passeios de Barco VIP', price: 'R$ 400', details: 'Passeio exclusivo de 6 horas com guia privado.', tags: ['Passeios', 'Barco', 'VIP'], daily_vacancies: 10 },
+    { id: 5, name: 'Trilhas Noturnas', price: 'R$ 180', details: 'Trilha de 2 horas para observar a vida noturna da floresta.', tags: ['Trilhas', 'Noturno'], daily_vacancies: 10 },
+    { id: 6, name: 'Hospedagem Luxo', price: 'R$ 800/noite', details: 'Suíte de luxo com todas as comodidades.', tags: ['Hospedagem', 'Luxo'], daily_vacancies: 10 },
+    { id: 7, name: 'Passeios de Barco Econômico', price: 'R$ 100', details: 'Passeio de 2 horas pelos igarapés.', tags: ['Passeios', 'Barco', 'Econômico'], daily_vacancies: 10 },
+    { id: 8, name: 'Trilhas para Iniciantes', price: 'R$ 120', details: 'Trilha de 1 hora para iniciantes.', tags: ['Trilhas', 'Iniciantes'], daily_vacancies: 10 },
+    { id: 9, name: 'Hospedagem Econômica', price: 'R$ 300/noite', details: 'Quarto econômico com vista para o jardim.', tags: ['Hospedagem', 'Econômica'], daily_vacancies: 10 },
+  ];
+  // Simular base de reservas com 9 reservas no dia 30 de maio e 1 reserva no dia 31 de maio
+  const reservations = [
+    { id: 1, product_id: 1, date: '2026-05-30', quantity: 2 },
+    { id: 2, product_id: 2, date: '2026-05-30', quantity: 1 },
+    { id: 3, product_id: 3, date: '2026-05-30', quantity: 1 },
+    { id: 4, product_id: 4, date: '2026-05-30', quantity: 1 },
+    { id: 5, product_id: 5, date: '2026-05-30', quantity: 1 },
+    { id: 6, product_id: 6, date: '2026-05-30', quantity: 1 },
+    { id: 7, product_id: 7, date: '2026-05-30', quantity: 1 },
+    { id: 8, product_id: 8, date: '2026-05-30', quantity: 1 },
+    { id: 9, product_id: 9, date: '2026-05-30', quantity: 1 },
+    { id: 10, product_id: 1, date: '2026-05-31', quantity: 1 },
+  ]
   const customerAgent = new AutonomousCustomerServiceAgent({
     apiKey: GOOGLE_GEMINI_API_KEY,
     // model: 'gemma-4-31b-it', // 'gemma-4-26b-a4b-it',
@@ -45,11 +69,11 @@ async function example() {
     .on(AgentEvents.SESSION_CLEARED, ({ session }) => console.log(`[Sessão] Limpa: ${session.id}`))
     .on(AgentEvents.TURN_START, ({ depth, session }) => console.log(`[Loop] Turno ${depth} — sessão ${session.id}`))
     .on(AgentEvents.TURN_END, ({ depth, session }) => console.log(`[Loop] Turno ${depth} finalizado — sessão ${session.id}`))
-    .on(AgentEvents.RESPONSE, ({ response, session, purchase_probability }) => {
+    .on(AgentEvents.RESPONSE, ({ response, reasoning, session, usageMetadata }) => {
+      console.log(`[Reasoning] Sessão ${session.id}:`, reasoning);
       console.log('\x1b[32m%s\x1b[0m', `[Agente] Sessão ${session.id}:`, response);
-      if (purchase_probability !== undefined) {
-        console.log(`  → Probabilidade de compra estimada: ${(purchase_probability * 100).toFixed(1)}%`);
-      }
+      console.log(`[UsageMetadata] Sessão ${session.id}:`, usageMetadata);
+
     })
     // .on(AgentEvents.RAW_RESPONSE, ({ rawResponse, session }) => console.log(`[Raw Response] Sessão ${session.id}:`, rawResponse, rawResponse.candidates[0].content.parts))
     .on(AgentEvents.TOOL_CALL, ({ name, args }) => console.log(`[Tool →] ${name}`, args))
@@ -91,17 +115,6 @@ async function example() {
     },
   }, async ({ tags } = {}) => {
     const categories = tags?.length ? tags : productCategories;
-    const products = [
-      { id: 1, name: 'Passeios de Barco', price: 'R$ 200', details: 'Passeio de 4 horas pelos igarapés.', tags: ['Passeios', 'Barco'] },
-      { id: 2, name: 'Trilhas', price: 'R$ 150', details: 'Trilha de 3 horas na floresta.', tags: ['Trilhas'] },
-      { id: 3, name: 'Hospedagem', price: 'R$ 500/noite', details: 'Quarto confortável com vista para o rio.', tags: ['Hospedagem'] },
-      { id: 4, name: 'Passeios de Barco VIP', price: 'R$ 400', details: 'Passeio exclusivo de 6 horas com guia privado.', tags: ['Passeios', 'Barco', 'VIP'] },
-      { id: 5, name: 'Trilhas Noturnas', price: 'R$ 180', details: 'Trilha de 2 horas para observar a vida noturna da floresta.', tags: ['Trilhas', 'Noturno'] },
-      { id: 6, name: 'Hospedagem Luxo', price: 'R$ 800/noite', details: 'Suíte de luxo com todas as comodidades.', tags: ['Hospedagem', 'Luxo'] },
-      { id: 7, name: 'Passeios de Barco Econômico', price: 'R$ 100', details: 'Passeio de 2 horas pelos igarapés.', tags: ['Passeios', 'Barco', 'Econômico'] },
-      { id: 8, name: 'Trilhas para Iniciantes', price: 'R$ 120', details: 'Trilha de 1 hora para iniciantes.', tags: ['Trilhas', 'Iniciantes'] },
-      { id: 9, name: 'Hospedagem Econômica', price: 'R$ 300/noite', details: 'Quarto econômico com vista para o jardim.', tags: ['Hospedagem', 'Econômica'] },
-    ];
     return JSON.stringify(products.filter(p => categories.some(category => p.tags.includes(category))));
   });
 
@@ -121,7 +134,21 @@ async function example() {
       required: ['tags', 'date']
     }
   }, async ({ tags, date }, _signal) => {
-    return JSON.stringify({ servico: tags, data: date, disponivel: true, vagas_restantes: 5 });
+    // Primeiro verifica que dia é hoje e retorna resposta se o dia ja passou
+    const today = new Date();
+    const reservationDate = new Date(date);
+    if (reservationDate < today) {
+      return JSON.stringify({ disponivel: false, message: 'Data já passou.' });
+    }
+    const reservacao = reservations.find(r => r.product_id === tags[0].id && r.date === date);
+    if (!reservacao) {
+      return JSON.stringify({ disponivel: true, vagas_restantes: 10 });
+    }
+
+    const totalVacancies = products.find(p => p.tags.includes(tags[0])).daily_vacancies;
+
+    console.log(`[check_availability] Reservado: ${reservacao.quantity}, Total: ${totalVacancies}`);
+    return JSON.stringify({ disponivel: totalVacancies - reservacao.quantity > 0, vagas_restantes: totalVacancies - reservacao.quantity });
   });
 
   customerAgent.registerTool({
@@ -168,47 +195,6 @@ async function example() {
 
   }
   );
-
-  // Tool para registrar a classificacao e probabilidade de compra do lead. Deve ser forcada para ser executada
-  // customerAgent.registerTool({
-  //   name: 'reclassify_lead',
-  //   description: `This tool records the lead's classification and estimated purchase probability, based on conversation analysis and lead data. The agent must call this tool at the end of each interaction to ensure that the lead's qualification information is always up-to-date. Run this tool at least once after identifying the user as a lead. The initial value of purchase_probability is 0.`,
-  //   parameters: {
-  //     type: Type.OBJECT,
-  //     properties: {
-  //       classification: {
-  //         type: Type.STRING,
-  //         enum: ['qualifying', 'unqualified', 'cold', 'warm', 'hot', 'converted'],
-  //         description: 'Lead classification based on the conversation and lead data. "qualifying" is a default neutral classification, while "unqualified", "cold", "warm", and "hot" indicate increasing levels of sales readiness.',
-  //       },
-  //       purchase_probability: {
-  //         type: Type.NUMBER,
-  //         description: 'Estimated purchase probability as a number between 0 and 1. This should be based on the model’s analysis of the conversation and lead data, and can be used for prioritization and follow-up strategies.'
-  //       },
-  //     },
-  //   }
-  // }, async ({ classification, purchase_probability }) => {
-  //   console.log('\x1b[34m%s\x1b[0m', `[Tool] classify_lead called with classification="${classification}" and purchase_probability=${purchase_probability}`);
-  //   // Aqui você pode implementar lógica adicional, como salvar a classificação em um banco de dados ou atualizar o CRM
-  //   return { success: true };
-  // });
-
-  // Turno 0 → Teste de System prompt do agente
-  // const p0 = "Você tem alguma incoerência ou contradição nas suas instruções? Se sim, explique qual é e como você lida com isso.";
-  // console.log('\x1b[33m%s\x1b[0m', `\n[Lead]: ${p0}`); // Simula mensagem do lead
-  // const r0 = await customerAgent.processMessage(p0, session.id);
-
-  // Observação: Qualquer erro durante processMessage agora resulta em:
-  //   1. Evento ERROR emitido com detalhes do erro
-  //   2. Evento SERVICE_UNAVAILABLE emitido
-  //   3. Resposta de indisponibilidade retornada ao lead (graceful degradation)
-  //   4. Recovery automático agendado (RECOVERY_SCHEDULED)
-  //   5. Timer dispara após X segundos (RECOVERY_ATTEMPT com status='awaiting_lead_message')
-  //   6. Próxima mensagem do lead tenta processar normalmente
-  //   7. Se bem-sucedido: RECOVERY_ATTEMPT com status='recovered' e inErrorState é zerado
-  //   8. Se falhar novamente: volta para passo 1 (erro é retentado indefinidamente)
-  //
-  // IMPORTANTE: As mensagens continuam sendo enfileiradas e processadas normalmente!
 
   // Turno 1 → agente atenderá o lead com boas-vindas
   console.log('\x1b[33m%s\x1b[0m', `\n[Lead]: Olá!`); // Simula mensagem do lead

@@ -1,6 +1,6 @@
 # Autonomous Customer Service Agent
 
-> **v2.0.1** — Agente autônomo de atendimento ao cliente baseado em IA, desenvolvido com Google Gemini. Suporta múltiplas sessões concorrentes, ferramentas customizadas, retry com backoff exponencial e modos de tratamento de falhas `sync` e `async`.
+> **v2.0.5** — Agente autônomo de atendimento ao cliente baseado em IA, desenvolvido com Google Gemini. Suporta múltiplas sessões concorrentes, ferramentas customizadas, retry com backoff exponencial e modos de tratamento de falhas `sync` e `async`.
 
 ---
 
@@ -14,9 +14,9 @@
 | **Timeouts Granulares** | AbortController por turno (padrão 90s) e por ferramenta (70% do turno) |
 | **Registro Programático de Tools** | Schema JSON completo + handler assíncrono |
 | **Modos de Falha `sync` / `async`** | Controle de indisponibilidade com retry agendado |
-| **Detecção de Vulnerabilidades** | Rastreamento e encerramento automático de sessões suspeitas |
+| **Detecção de Vulnerabilidades** | Rastreamento via ferramenta interna de segurança e encerramento automático de sessões suspeitas |
 | **Eventos Estruturados** | `EventEmitter` para monitoramento e integração externos |
-| **Resposta JSON Estruturada** | Schema fixo com `reasoning`, `response` e auditoria |
+| **Raciocínio Nativo (`thought === true`)** | Separação nativa de raciocínio (internal thoughts) e resposta final para o usuário |
 | **`AgentManager`** | Gerenciador de múltiplos agentes independentes |
 
 ---
@@ -260,14 +260,14 @@ agent.registerTool('check_availability', async ({ date }, signal) => {
 
 ### `AgentResponse` — Estrutura da Resposta
 
-Toda resposta de `processMessage` segue o esquema fixo:
+A resposta de `processMessage` é gerada em formato livre e estruturada pela biblioteca ao separar as partes de raciocínio (`thought === true`) e a resposta final do modelo:
 
 ```typescript
 {
   sent_at: string;                         // Timestamp (DD/MM/YYYY HH:mm:ss, fuso Brasília)
-  reasoning: string;                       // Raciocínio interno do modelo (para auditoria)
-  response: string;                        // Texto da resposta para o usuário
-  vulnerability_exploration_attempts?: number; // Tentativas de exploração detectadas
+  reasoning: string;                       // Raciocínio nativo do modelo (extraído de parts com thought === true)
+  response: string;                        // Texto final da resposta enviada ao usuário
+  vulnerability_exploration_attempts?: number; // Tentativas de exploração detectadas na sessão
 }
 ```
 
@@ -485,7 +485,9 @@ O arquivo `.gitignore` já ignora:
 
 ### Proteção contra Exploração
 
-O agente possui mecanismo embutido de detecção de tentativas de exploração (prompt injection, extração de system prompt, bypass de regras). Após `maxVulnerabilityAttempts` tentativas detectadas pelo modelo, a sessão é encerrada automaticamente e `session.terminated = true`.
+O agente possui mecanismo embutido de detecção de tentativas de exploração (prompt injection, extração de system prompt, engenharia social e bypass de regras) usando a ferramenta interna `report_vulnerability_attempt` disponibilizada ao modelo Gemini.
+
+Quando o modelo detecta um comportamento hostil do usuário, ele aciona essa ferramenta. O acionamento emite o evento `VULNERABILITY_EXPLORATION_DETECTED` com a mensagem `"Attempt to exploit vulnerability detected"` e incrementa o contador da sessão. Após `maxVulnerabilityAttempts` tentativas registradas na sessão ativa, a mesma é encerrada automaticamente e `session.terminated = true`.
 
 ---
 

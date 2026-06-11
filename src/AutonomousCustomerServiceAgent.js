@@ -139,9 +139,13 @@ class AutonomousCustomerServiceAgent extends EventEmitter {
     /**
      * Remove uma sessão manualmente.
      * @param {string} sessionId
+     * @param {object} options
+     * @param {string} [options.reason='manual'] - Motivo da limpeza
+     * @param {object} [options.data={}] - Dados adicionais a serem enviados no evento
+     * @param {boolean} [options.eventTrigger=true] - Se deve emitir o evento
      * @returns {boolean}
      */
-    clearSession(sessionId) {
+    clearSession(sessionId, { reason = 'manual', data = {}, eventTrigger = true } = {}) {
         const session = this.#sessions.get(sessionId);
         if (!session) return false;
         session.cancelTTL();
@@ -151,7 +155,11 @@ class AutonomousCustomerServiceAgent extends EventEmitter {
         }
         const sessionData = session.toJSON(); // Copia o estado antes de deletar a sessão
         this.#sessions.delete(sessionId);
-        this.emit(AgentEvents.SESSION_CLEARED, { session: sessionData });
+
+        if (eventTrigger) {
+            this.emit(AgentEvents.SESSION_CLEARED, { session: sessionData, reason, data });
+        }
+
         return true;
     }
 

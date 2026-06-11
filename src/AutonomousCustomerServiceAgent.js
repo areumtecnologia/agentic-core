@@ -149,8 +149,9 @@ class AutonomousCustomerServiceAgent extends EventEmitter {
             clearTimeout(session.retryState.timerId);
             session.retryState = null;
         }
+        const sessionData = session.toJSON(); // Copia o estado antes de deletar a sessão
         this.#sessions.delete(sessionId);
-        this.emit(AgentEvents.SESSION_CLEARED, { session: session.toJSON() });
+        this.emit(AgentEvents.SESSION_CLEARED, { session: sessionData });
         return true;
     }
 

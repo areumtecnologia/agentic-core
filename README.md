@@ -1,6 +1,6 @@
 # Autonomous Customer Service Agent
 
-> **v2.0.6** — Agente autônomo de atendimento ao cliente baseado em IA, desenvolvido com Google Gemini. Suporta múltiplas sessões concorrentes, ferramentas customizadas, retry com backoff exponencial e modos de tratamento de falhas `sync` e `async`.
+> **v2.2.11** — Agente autônomo de atendimento ao cliente baseado em IA, multi-provedor (Google Gemini, OpenAI, Claude, Ollama), com suporte a mídias (imagens, áudio, vídeo), gerenciamento concorrente transparente (debounce + abort) e sessões integradas.
 
 ---
 
@@ -8,9 +8,12 @@
 
 | Recurso | Descrição |
 |---|---|
+| **Multi-Provider Nativo** | Suporte a **Google Gemini**, **OpenAI GPT**, **Anthropic Claude** e **Ollama** (modelos locais). |
+| **Suporte Multimídia** | Envio de anexos (imagens, áudio, vídeo) em Base64 no processamento de mensagens. |
+| **Concorrência Transparente** | Gerenciamento automático de mensagens consecutivas (`debounceMs`) com cancelamento ativo no LLM. |
 | **Agentic Loop Completo** | Tool calls encadeados com execução recursiva e contextualizada |
 | **Gerenciamento de Sessões** | TTL configurável com renovação automática por atividade |
-| **Retry com Backoff Exponencial** | Recuperação automática com jitter configurável |
+| **Retry com Backoff Exponencial** | Recuperação automática de falhas com jitter configurável |
 | **Timeouts Granulares** | AbortController por turno (padrão 90s) e por ferramenta (70% do turno) |
 | **Registro Programático de Tools** | Schema JSON completo + handler assíncrono |
 | **Modos de Falha `sync` / `async`** | Controle de indisponibilidade com retry agendado |
@@ -40,7 +43,7 @@ npm install
 ### Pré-requisitos
 
 - Node.js `>=16.0.0`
-- Chave de API do Google Gemini
+- Chave de API de um provedor compatível (Google Gemini, OpenAI, Anthropic) ou Ollama rodando localmente
 
 ---
 
@@ -55,15 +58,26 @@ cp .env.example .env
 ```env
 # .env
 GOOGLE_GEMINI_API_KEY=sua-chave-aqui
+# Se usar outros provedores:
+OPENAI_API_KEY=sua-chave-openai-aqui
+ANTHROPIC_API_KEY=sua-chave-anthropic-aqui
 ```
 
 ---
 
 ## 🚀 Quickstart
 
+### Exemplo com Provedor Google (Gemini)
+
 ```javascript
 require('dotenv').config();
-const { AutonomousCustomerServiceAgent, AgentConfig, AgentEvents, Type } = require('@areumtecnologia/autonomouscustomerserviceagent');
+const { 
+  AutonomousCustomerServiceAgent, 
+  AgentConfig, 
+  AgentEvents, 
+  Type, 
+  GoogleProvider 
+} = require('@areumtecnologia/autonomouscustomerserviceagent');
 
 // 1. Configurar o agente
 const agentConfig = new AgentConfig(
@@ -78,9 +92,13 @@ const agentConfig = new AgentConfig(
   'pt-BR'                                               // Idioma do raciocínio interno
 );
 
-// 2. Instanciar o agente
+// 2. Instanciar o agente usando o provedor Google Gemini
 const agent = new AutonomousCustomerServiceAgent({
-  apiKey: process.env.GOOGLE_GEMINI_API_KEY,
+  provider: new GoogleProvider({
+    apiKey: process.env.GOOGLE_GEMINI_API_KEY,
+    model: 'gemma-4-26b-a4b-it'
+  }),
+  debounceMs: 1500, // 1.5s de debounce transparente para mensagens consecutivas
   agent: agentConfig,
 });
 
@@ -98,7 +116,7 @@ agent.registerTool({
   return JSON.stringify({ products: ['Produto A', 'Produto B'] });
 });
 
-// 4. Criar sessão (ID externo + dados do usuário)
+// 4. Criar sessão
 const session = agent.createSession('session-001', {
   name: 'João Silva',
   phone: '+55 11 98765-4321',
@@ -107,9 +125,56 @@ const session = agent.createSession('session-001', {
 });
 
 // 5. Processar mensagens
-const response = await agent.processMessage('Olá!', session.id);
+const response = await agent.processMessage(session.id, 'Olá!');
 console.log(response.response);
 // → "Olá, João! Bem-vindo à Minha Empresa. Como posso ajudá-lo?"
+```
+
+---
+
+## 🔮 Provedores de IA Suportados
+
+A biblioteca suporta diferentes provedores de IA de forma intercambiável. Basta instanciar o provedor desejado e passá-lo na propriedade `provider` do construtor:
+
+### 1. Google Gemini Provider
+```javascript
+const { GoogleProvider } = require('@areumtecnologia/autonomouscustomerserviceagent');
+
+const provider = new GoogleProvider({
+  apiKey: process.env.GOOGLE_GEMINI_API_KEY,
+  model: 'gemma-4-26b-a4b-it' // ou 'gemini-2.5-flash', 'gemini-2.5-pro'
+});
+```
+
+### 2. OpenAI Provider
+```javascript
+const { OpenAIProvider } = require('@areumtecnologia/autonomouscustomerserviceagent');
+
+const provider = new OpenAIProvider({
+  apiKey: process.env.OPENAI_API_KEY,
+  model: 'gpt-4o' // ou 'gpt-4o-mini'
+});
+```
+
+### 3. Anthropic Claude Provider
+```javascript
+const { AnthropicProvider } = require('@areumtecnologia/autonomouscustomerserviceagent');
+
+const provider = new AnthropicProvider({
+  apiKey: process.env.ANTHROPIC_API_KEY,
+  model: 'claude-3-5-sonnet-latest'
+});
+```
+
+### 4. Ollama Provider (Modelos Locais)
+Perfeito para rodar offline ou em servidores locais compatíveis com a API do OpenAI:
+```javascript
+const { OllamaProvider } = require('@areumtecnologia/autonomouscustomerserviceagent');
+
+const provider = new OllamaProvider({
+  model: 'gemma4',                  // Nome do modelo baixado no Ollama
+  baseURL: 'http://localhost:11434/v1' // Opcional, padrão da API local do Ollama
+});
 ```
 
 ---
@@ -135,9 +200,11 @@ Constrói a configuração do agente. **Obrigatório** — o construtor de `Auto
 
 | Opção | Tipo | Padrão | Descrição |
 |---|---|---|---|
-| `apiKey` | `string` | **Obrigatório** | Chave da API Google Gemini |
+| `provider` | `BaseProvider` | — | Instância do provedor de IA (`GoogleProvider`, `OpenAIProvider`, etc.). **Obrigatório** caso `apiKey` não seja informado. |
+| `apiKey` | `string` | — | Chave Gemini (retrocompatível — instancia o `GoogleProvider` internamente caso o `provider` seja omitido). |
 | `agent` | `AgentConfig` | **Obrigatório** | Instância de `AgentConfig` |
-| `model` | `string` | `'gemma-4-26b-a4b-it'` | Modelo Gemini a ser usado |
+| `debounceMs` | `number` | `0` | Tempo em ms para debounce e concatenação transparente de mensagens rápidas. `0` mantém desativado. |
+| `model` | `string` | `'gemma-4-26b-a4b-it'` | Modelo Gemini a ser usado no fallback do GoogleProvider. |
 | `maxAgenticLoopTurns` | `number` | `9` | Máx. de iterações do agentic loop por mensagem |
 | `sessionTTL` | `number` | `1800000` | TTL da sessão em ms (padrão: 30 min) |
 | `turnTimeoutMs` | `number` | `90000` | Timeout por turno do loop em ms |
@@ -168,18 +235,48 @@ const session = agent.createSession('session-abc', {
   email: 'maria@exemplo.com',
   origin: { type: 'instagram', id: '999', description: 'Lead via DM.' },
 });
-// session.id → 'session-abc'
 ```
 
-#### `agent.processMessage(message, sessionId)` → `Promise<AgentResponse>`
+#### `agent.processMessage(sessionId, text, attachment?, options?)` → `Promise<AgentResponse>`
 
-Processa uma mensagem dentro de uma sessão existente. Gerencia todo o histórico de conversa e agentic loop internamente.
+Processa uma mensagem dentro de uma sessão existente. Gerencia todo o histórico de conversa, mídias enviadas, concorrência interna (se `debounceMs` estiver ativo) e o loop de ferramentas internamente.
 
+> [!NOTE]
+> A partir da versão **v2.2.x**, a ordem de parâmetros foi invertida para colocar o `sessionId` em primeiro lugar, permitindo suporte limpo a anexos opcionais.
+
+- **`sessionId`**: `string` - ID da sessão de atendimento.
+- **`text`**: `string` - Mensagem de texto enviada pelo usuário.
+- **`attachment`** (opcional): `object` - Anexo de mídia no formato `{ base64: string, mimeType: string }`.
+- **`options`** (opcional): `object` - Opções extras da chamada (ex: `{ signal: abortSignal }`).
+
+**Exemplo básico:**
 ```javascript
-const response = await agent.processMessage('Quero saber sobre seus produtos.', 'session-abc');
-console.log(response.response);    // Texto para o usuário
-console.log(response.reasoning);   // Raciocínio interno do modelo
-console.log(response.sent_at);     // Timestamp no fuso de Brasília
+const response = await agent.processMessage(session.id, 'Quero saber sobre seus produtos.');
+console.log(response.response);
+```
+
+**Exemplo enviando imagem (Multimídia):**
+```javascript
+const response = await agent.processMessage(
+  session.id,
+  'O que tem nessa imagem?',
+  {
+    base64: 'iVBORw0KGgoAAAANSUhEUgAA...',
+    mimeType: 'image/png'
+  }
+);
+console.log(response.response);
+```
+
+**Exemplo passando AbortSignal manual:**
+```javascript
+const controller = new AbortController();
+const response = await agent.processMessage(
+  session.id,
+  'Buscar informações pesadas...',
+  {},
+  { signal: controller.signal }
+);
 ```
 
 #### `agent.getSession(sessionId)` → `SessionSnapshot | null`
@@ -203,7 +300,7 @@ const s2 = agent.getSessionByUser({
 
 #### `agent.clearSession(sessionId)` → `boolean`
 
-Remove uma sessão manualmente, cancelando seu TTL e retentativas agendadas. Emite `SESSION_CLEARED`.
+Remove uma sessão manualmente, cancelando seu TTL, retentativas agendadas e buffers concorrentes pendentes. Emite `SESSION_CLEARED`.
 
 #### `agent.activeSessions` → `number`
 
@@ -264,12 +361,26 @@ A resposta de `processMessage` é gerada em formato livre e estruturada pela bib
 
 ```typescript
 {
-  sent_at: string;                         // Timestamp (DD/MM/YYYY HH:mm:ss, fuso Brasília)
-  reasoning: string;                       // Raciocínio nativo do modelo (extraído de parts com thought === true)
-  response: string;                        // Texto final da resposta enviada ao usuário
+  sent_at: string;                             // Timestamp (DD/MM/YYYY HH:mm:ss, fuso Brasília)
+  reasoning: string;                           // Raciocínio nativo do modelo (extraído de parts com thought === true)
+  response: string;                            // Texto final da resposta enviada ao usuário
   vulnerability_exploration_attempts?: number; // Tentativas de exploração detectadas na sessão
 }
 ```
+
+---
+
+## 🔄 Gestão Concorrente Transparente (Debounce & Abort)
+
+Em canais de mensagens instantâneas (como o WhatsApp e Telegram), os usuários costumam enviar várias mensagens consecutivas ("Oi!", "Tudo bem?", "Queria saber os horários...").
+
+Quando `debounceMs` é configurado (ex: `1500`):
+1. **Debounce Temporal**: O agente aguarda até que o usuário pare de digitar pelo tempo definido antes de submeter o texto concatenado ao LLM.
+2. **Cancelamento Ativo (Abort)**: Se o usuário enviar uma mensagem no momento em que o LLM estiver gerando a resposta anterior:
+   - A requisição ativa é abortada no LLM imediatamente (economizando custos de API e processamento).
+   - O turno de usuário incompleto é removido do histórico da sessão (garantindo que o histórico permaneça consistente).
+   - A Promise correspondente à mensagem abortada resolve instantaneamente com `{ aborted: true }` (prevenindo travamento do event loop).
+   - O agente inicia um novo debounce para processar as mensagens seguintes unificadas.
 
 ---
 
@@ -285,7 +396,7 @@ agent
   .on(AgentEvents.SESSION_CREATED, ({ session }) =>
     console.log(`Sessão criada: ${session.id}`))
 
-  .on(AgentEvents.SESSION_EXPIRED, ({ sessionId, user }) =>
+  .on(AgentEvents.SESSION_EXPIRED, ({ sessionId }) =>
     console.log(`Sessão expirada: ${sessionId}`))
 
   .on(AgentEvents.SESSION_CLEARED, ({ session }) =>
@@ -301,8 +412,6 @@ agent
   .on(AgentEvents.RESPONSE, ({ response, reasoning, session, usageMetadata }) =>
     console.log(`[${session.id}]`, response))
 
-  .on(AgentEvents.RAW_RESPONSE, ({ rawResponse, session }) => { /* resposta bruta do modelo */ })
-
   // ── Ferramentas ──────────────────────────────────────────────────────────
   .on(AgentEvents.TOOL_CALL, ({ name, args, session }) =>
     console.log(`Tool chamada: ${name}`, args))
@@ -313,47 +422,10 @@ agent
   // ── Retry e Falhas ───────────────────────────────────────────────────────
   .on(AgentEvents.RETRY, ({ attempt, delay, error, session }) =>
     console.warn(`Retry ${attempt} em ${delay}ms`))
-
-  .on(AgentEvents.ASYNC_RETRY_SCHEDULED, ({ session, delay, attempts }) =>
-    console.log(`Retry async agendado em ${delay}ms`))
-
-  .on(AgentEvents.ASYNC_RETRY_COMPLETED, ({ session, attempts, result }) =>
-    console.log(`Retry async concluído após ${attempts} tentativas`))
-
-  .on(AgentEvents.SYNC_RETRY_STARTED, ({ session, attempt }) =>
-    console.log(`Retry sync tentativa ${attempt}`))
-
-  .on(AgentEvents.SYNC_RETRY_COMPLETED, ({ session, attempt, result }) =>
-    console.log(`Retry sync concluído na tentativa ${attempt}`))
-
-  // ── Segurança ────────────────────────────────────────────────────────────
-  .on(AgentEvents.VULNERABILITY_EXPLORATION_DETECTED, ({ session, attempts, threshold }) =>
-    console.error(`Exploração detectada — ${attempts}/${threshold} tentativas`))
-
+  
   .on(AgentEvents.ERROR, ({ error, source, session }) =>
     console.error(`Erro${source ? ` [${source}]` : ''}:`, error.message));
 ```
-
-### Referência de Eventos (`AgentEvents`)
-
-| Constante | Valor | Descrição |
-|---|---|---|
-| `RESPONSE` | `'response'` | Resposta final estruturada do agente |
-| `RAW_RESPONSE` | `'raw_response'` | Resposta bruta do modelo (candidatos) |
-| `TOOL_CALL` | `'tool_call'` | Antes de executar uma ferramenta |
-| `TOOL_RESULT` | `'tool_result'` | Após a ferramenta resolver |
-| `TURN_START` | `'turn_start'` | Início de um turno do agentic loop |
-| `TURN_END` | `'turn_end'` | Fim de um turno do agentic loop |
-| `SESSION_CREATED` | `'session_created'` | Nova sessão criada |
-| `SESSION_EXPIRED` | `'session_expired'` | Sessão expirada por TTL |
-| `SESSION_CLEARED` | `'session_cleared'` | Sessão removida manualmente |
-| `RETRY` | `'retry'` | Retry de curto prazo após falha na API |
-| `ASYNC_RETRY_SCHEDULED` | `'async_retry_scheduled'` | Retry assíncrono de longo prazo agendado |
-| `ASYNC_RETRY_COMPLETED` | `'async_retry_completed'` | Retry assíncrono concluído com sucesso |
-| `SYNC_RETRY_STARTED` | `'sync_retry_started'` | Retry síncrono iniciado |
-| `SYNC_RETRY_COMPLETED` | `'sync_retry_completed'` | Retry síncrono concluído com sucesso |
-| `VULNERABILITY_EXPLORATION_DETECTED` | `'vulnerability_exploration_detected'` | Tentativa de exploração detectada |
-| `ERROR` | `'error'` | Erro irrecuperável ou de ferramenta |
 
 ---
 
@@ -363,41 +435,9 @@ agent
 
 Quando o processamento falha, o agente bloqueia novas requisições da **mesma sessão** e tenta o reprocessamento em intervalos regulares até atingir o limite de tentativas ou a janela de tempo. Outras sessões são bloqueadas durante o retry.
 
-```
-Mensagem recebida → falha na API
-       ↓
-  Retry sync #1 (aguarda retryScheduleMinutes)
-       ↓
-  Retry sync #2 ...
-       ↓
-  Limite atingido → resposta de indisponibilidade
-```
-
 ### `failureHandlingMode: 'async'`
 
 O agente responde imediatamente com a `unavailabilityMessage` e agenda retentativas em background. O atendimento de outras sessões **não é bloqueado**.
-
-```
-Mensagem recebida → falha na API
-       ↓
-  Retorna unavailabilityMessage imediatamente
-       ↓
-  Retry async agendado em retryScheduleMinutes
-       ↓ (background)
-  Retry #1, #2 ... até limite → emite ASYNC_RETRY_COMPLETED ou ERROR
-```
-
-```javascript
-const agent = new AutonomousCustomerServiceAgent({
-  apiKey: process.env.GOOGLE_GEMINI_API_KEY,
-  agent: agentConfig,
-  failureHandlingMode: 'async',
-  retryScheduleMinutes: 5,       // intervalo entre tentativas
-  retryScheduleAttempts: 24,     // máx. tentativas (= até 2h com intervalo de 5min)
-  retryScheduleWindowMs: 2 * 60 * 60 * 1000, // janela de 2 horas
-  unavailabilityMessage: 'Estamos com uma instabilidade temporária. Entraremos em contato em breve.',
-});
-```
 
 ---
 
@@ -410,15 +450,11 @@ const { AgentManager, AutonomousCustomerServiceAgent, AgentConfig } = require('@
 
 const manager = new AgentManager();
 
-manager.add('vendas', new AutonomousCustomerServiceAgent({ apiKey, agent: configVendas }));
-manager.add('suporte', new AutonomousCustomerServiceAgent({ apiKey, agent: configSuporte }));
+manager.add('vendas', new AutonomousCustomerServiceAgent({ provider: providerVendas, agent: configVendas }));
+manager.add('suporte', new AutonomousCustomerServiceAgent({ provider: providerSuporte, agent: configSuporte }));
 
 const agenteVendas = manager.get('vendas');
 agenteVendas.createSession('s-001', { name: 'Lead', phone: '...' });
-
-manager.list();    // → ['vendas', 'suporte']
-manager.remove('suporte');
-manager.clear();
 ```
 
 ---
@@ -434,27 +470,15 @@ AutonomousCustomerServiceAgent/
 │   ├── AgentSession.js                   # Estado de uma sessão de conversa
 │   ├── AgentEvents.js                    # Constantes de eventos (EventEmitter)
 │   ├── AgentManager.js                   # Gerenciador de múltiplos agentes
+│   ├── providers/                        # Provedores de IA suportados (Google, OpenAI, Anthropic, Ollama)
 │   └── utils.js                          # withRetry (backoff exponencial + jitter)
 ├── tests/
-│   └── test.js                           # Exemplo completo multi-turno com tools
-├── logs/                                 # Logs de execução (gerado em runtime)
+│   ├── test.js                           # Testes de integração e exemplos
+│   └── test_debounce_abort.js            # Simulação e validação de concorrência
+├── logs/                                 # Logs de execução (gerados em runtime)
 ├── .env.example                          # Template de variáveis de ambiente
-├── .gitignore
 ├── package.json
 └── README.md
-```
-
-### Exports Públicos (`src/index.js`)
-
-```javascript
-const {
-  AutonomousCustomerServiceAgent, // Classe principal
-  AgentConfig,                    // Builder de configuração
-  AgentEvents,                    // Constantes de eventos
-  AgentManager,                   // Gerenciador de múltiplos agentes
-  Type,                           // Re-export de @google/genai (para schemas de tools)
-  ThinkingLevel,                  // Re-export de @google/genai
-} = require('@areumtecnologia/autonomouscustomerserviceagent');
 ```
 
 ---
@@ -465,29 +489,15 @@ const {
 npm test
 ```
 
-O script `tests/test.js` demonstra um exemplo completo com:
-- Configuração do agente com `AgentConfig`
-- Registro de múltiplas ferramentas com schemas completos (`get_current_datetime`, `get_product_data`, `check_availability`, `checkout`, `clear_session`)
-- Conversa multi-turno (5 turnos: boas-vindas → consulta de produtos → disponibilidade → reserva → checkout)
-- Eventos de monitoramento completos
-- Execução consecutiva para validação de estabilidade (5 iterações)
-
 ---
 
 ## 🔐 Segurança
 
-> ⚠️ **Nunca** commite o arquivo `.env` com credenciais reais.
-
-O arquivo `.gitignore` já ignora:
-- `.env` — credenciais da API
-- `node_modules/` — dependências
-- `logs/` — arquivos de log
-
 ### Proteção contra Exploração
 
-O agente possui mecanismo embutido de detecção de tentativas de exploração (prompt injection, extração de system prompt, engenharia social e bypass de regras) usando a ferramenta interna `report_vulnerability_attempt` disponibilizada ao modelo Gemini.
+O agente possui mecanismo embutido de detecção de tentativas de exploração (prompt injection, extração de system prompt, engenharia social e bypass de regras) usando a ferramenta interna `report_vulnerability_attempt` disponibilizada ao modelo.
 
-Quando o modelo detecta um comportamento hostil do usuário, ele aciona essa ferramenta. O acionamento emite o evento `VULNERABILITY_EXPLORATION_DETECTED` com a mensagem `"Attempt to exploit vulnerability detected"` e incrementa o contador da sessão. Após `maxVulnerabilityAttempts` tentativas registradas na sessão ativa, a mesma é encerrada automaticamente e `session.terminated = true`.
+Quando o modelo detecta um comportamento hostil do usuário, ele aciona essa ferramenta. O acionamento emite o evento `VULNERABILITY_EXPLORATION_DETECTED` e incrementa o contador da sessão. Após `maxVulnerabilityAttempts` tentativas registradas na sessão ativa, a mesma é encerrada automaticamente e `session.terminated = true`.
 
 ---
 

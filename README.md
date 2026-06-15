@@ -1,6 +1,6 @@
 # Autonomous Customer Service Agent
 
-> **v2.2.11** — Agente autônomo de atendimento ao cliente baseado em IA, multi-provedor (Google Gemini, OpenAI, Claude, Ollama), com suporte a mídias (imagens, áudio, vídeo), gerenciamento concorrente transparente (debounce + abort) e sessões integradas.
+> **v2.3.0** — Agente autônomo de atendimento ao cliente baseado em IA, com suporte a múltiplos provedores redundantes (Google Gemini, OpenAI, Claude, Ollama), failover automático em caso de falhas 5xx, suporte a mídias (imagens, áudio, vídeo), gerenciamento concorrente transparente (debounce + abort) e sessões integradas.
 
 ---
 
@@ -9,6 +9,7 @@
 | Recurso | Descrição |
 |---|---|
 | **Multi-Provider Nativo** | Suporte a **Google Gemini**, **OpenAI GPT**, **Anthropic Claude** e **Ollama** (modelos locais). |
+| **Redundância e Failover** | Possibilidade de configurar múltiplos modelos/provedores. Transição automática imediata em caso de indisponibilidade (erro 5xx/rate limit/timeout). |
 | **Suporte Multimídia** | Envio de anexos (imagens, áudio, vídeo) em Base64 no processamento de mensagens. |
 | **Concorrência Transparente** | Gerenciamento automático de mensagens consecutivas (`debounceMs`) com cancelamento ativo no LLM. |
 | **Agentic Loop Completo** | Tool calls encadeados com execução recursiva e contextualizada |
@@ -92,12 +93,20 @@ const agentConfig = new AgentConfig(
   'pt-BR'                                               // Idioma do raciocínio interno
 );
 
-// 2. Instanciar o agente usando o provedor Google Gemini
+// 2. Instanciar o agente usando múltiplos provedores ou modelos redundantes (Failover automático)
 const agent = new AutonomousCustomerServiceAgent({
-  provider: new GoogleProvider({
-    apiKey: process.env.GOOGLE_GEMINI_API_KEY,
-    model: 'gemma-4-26b-a4b-it'
-  }),
+  // Aceita também model como array de strings (ex: ['gemma-4-26b-a4b-it', 'gemma-4-31b-it'])
+  // ou providers como array de instâncias/objetos de configuração
+  providers: [
+    new GoogleProvider({
+      apiKey: process.env.GOOGLE_GEMINI_API_KEY,
+      model: 'gemma-4-26b-a4b-it'
+    }),
+    new GoogleProvider({
+      apiKey: process.env.GOOGLE_GEMINI_API_KEY,
+      model: 'gemma-4-31b-it'
+    })
+  ],
   debounceMs: 1500, // 1.5s de debounce transparente para mensagens consecutivas
   agent: agentConfig,
 });
@@ -134,7 +143,31 @@ console.log(response.response);
 
 ## 🔮 Provedores de IA Suportados
 
-A biblioteca suporta diferentes provedores de IA de forma intercambiável. Basta instanciar o provedor desejado e passá-lo na propriedade `provider` do construtor:
+A biblioteca suporta diferentes provedores de IA de forma intercambiável. Basta instanciar o provedor desejado e passá-lo na propriedade `provider` (ou `providers`) do construtor.
+
+### Redundância e Failover (Múltiplos Provedores/Modelos)
+Você pode configurar múltiplos modelos e/ou provedores para failover automático em caso de indisponibilidade (erro 5xx, rate limits ou timeouts).
+
+```javascript
+const { GoogleProvider, OpenAIProvider, AutonomousCustomerServiceAgent } = require('@areumtecnologia/autonomouscustomerserviceagent');
+
+const agent = new AutonomousCustomerServiceAgent({
+  // O campo providers aceita instâncias de BaseProvider ou objetos de configuração
+  providers: [
+    new GoogleProvider({ apiKey: 'key1', model: 'gemma-4-26b-a4b-it' }),
+    { type: 'google', apiKey: 'key1', model: 'gemma-4-31b-it' },
+    { type: 'openai', apiKey: 'key2', model: 'gpt-4o' }
+  ],
+  agent: agentConfig
+});
+
+// Se preferir usar o provedor padrão (GoogleProvider) para múltiplos modelos:
+const agentSimplificado = new AutonomousCustomerServiceAgent({
+  apiKey: 'sua-gemini-key',
+  model: ['gemma-4-26b-a4b-it', 'gemma-4-31b-it'], // Failover automático entre os modelos caso um falhe
+  agent: agentConfig
+});
+```
 
 ### 1. Google Gemini Provider
 ```javascript
@@ -200,11 +233,12 @@ Constrói a configuração do agente. **Obrigatório** — o construtor de `Auto
 
 | Opção | Tipo | Padrão | Descrição |
 |---|---|---|---|
-| `provider` | `BaseProvider` | — | Instância do provedor de IA (`GoogleProvider`, `OpenAIProvider`, etc.). **Obrigatório** caso `apiKey` não seja informado. |
-| `apiKey` | `string` | — | Chave Gemini (retrocompatível — instancia o `GoogleProvider` internamente caso o `provider` seja omitido). |
+| `provider` | `BaseProvider \| object \| Array` | — | Provedor de IA. Aceita uma instância de `BaseProvider`, um objeto de configuração (ex: `{ type: 'google', apiKey: '...' }`) ou um array de provedores/configurações para failover em caso de indisponibilidade (erro 5xx). |
+| `providers` | `BaseProvider \| object \| Array` | — | Equivalente a `provider`. Permite a declaração legível de múltiplos provedores redundantes. |
+| `apiKey` | `string` | — | Chave Gemini (retrocompatível — instancia o `GoogleProvider` internamente caso nenhum provedor seja fornecido). |
 | `agent` | `AgentConfig` | **Obrigatório** | Instância de `AgentConfig` |
 | `debounceMs` | `number` | `0` | Tempo em ms para debounce e concatenação transparente de mensagens rápidas. `0` mantém desativado. |
-| `model` | `string` | `'gemma-4-26b-a4b-it'` | Modelo Gemini a ser usado no fallback do GoogleProvider. |
+| `model` | `string \| string[]` | `'gemma-4-26b-a4b-it'` | Modelo Gemini (ou array de modelos) a ser usado no fallback do GoogleProvider. Se passado como array de strings, o agente realiza failover entre os modelos. |
 | `maxAgenticLoopTurns` | `number` | `9` | Máx. de iterações do agentic loop por mensagem |
 | `sessionTTL` | `number` | `1800000` | TTL da sessão em ms (padrão: 30 min) |
 | `turnTimeoutMs` | `number` | `90000` | Timeout por turno do loop em ms |
@@ -422,6 +456,9 @@ agent
   // ── Retry e Falhas ───────────────────────────────────────────────────────
   .on(AgentEvents.RETRY, ({ attempt, delay, error, session }) =>
     console.warn(`Retry ${attempt} em ${delay}ms`))
+
+  .on(AgentEvents.PROVIDER_FALLBACK, ({ failedProvider, failedModel, nextProvider, nextModel, error }) =>
+    console.warn(`Fallback: ${failedProvider} (${failedModel}) falhou com erro ${error.status || error.message}. Migrando para ${nextProvider} (${nextModel})`))
   
   .on(AgentEvents.ERROR, ({ error, source, session }) =>
     console.error(`Erro${source ? ` [${source}]` : ''}:`, error.message));

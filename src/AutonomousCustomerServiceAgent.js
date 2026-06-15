@@ -14,7 +14,8 @@ const { BaseProvider } = require('./providers/BaseProvider');
 
 class AutonomousCustomerServiceAgent extends EventEmitter {
     // ── Private fields ──────────────────────────────────────────────────────────
-    #provider;
+    #providers = [];
+    #activeProviderIndex = 0;
     #agent; // Uma instância de AgentConfig
     #toolRegistry = new Map();      // Armazena { declaration, handler }
     #maxAgenticLoopTurns;
@@ -40,6 +41,10 @@ class AutonomousCustomerServiceAgent extends EventEmitter {
     #debounceMs = 0;
     #sessionBuffers = new Map();
 
+    get #provider() {
+        return this.#providers[this.#activeProviderIndex];
+    }
+
     /**
      * @param {object} options
      * @param {BaseProvider} [options.provider]               Provedor de IA (GoogleProvider, OpenAIProvider, etc.)
@@ -63,6 +68,7 @@ class AutonomousCustomerServiceAgent extends EventEmitter {
      */
     constructor({
         provider,
+        providers,
         apiKey,
         agent, // Uma instancia de AgentConfig
         model = 'gemma-4-26b-a4b-it',
@@ -88,17 +94,82 @@ class AutonomousCustomerServiceAgent extends EventEmitter {
             throw new TypeError('[AgentCSA] agent must be an instance of AgentConfig.');
         }
 
-        // ── Provider: injeção ou fallback retrocompatível ─────────────────────
+        // ── Provider: injeção ou fallback retrocompatível com múltiplos provedores/modelos ──
+        const rawProviders = [];
         if (provider) {
-            if (!(provider instanceof BaseProvider)) {
-                throw new TypeError('[AgentCSA] provider must be an instance of BaseProvider.');
+            if (Array.isArray(provider)) {
+                rawProviders.push(...provider);
+            } else {
+                rawProviders.push(provider);
             }
-            this.#provider = provider;
+        }
+        if (providers) {
+            if (Array.isArray(providers)) {
+                rawProviders.push(...providers);
+            } else {
+                rawProviders.push(providers);
+            }
+        }
+
+        const models = [];
+        if (model) {
+            if (Array.isArray(model)) {
+                models.push(...model);
+            } else {
+                models.push(model);
+            }
+        } else {
+            models.push('gemma-4-26b-a4b-it');
+        }
+
+        const providersList = [];
+        if (rawProviders.length > 0) {
+            for (const rawProv of rawProviders) {
+                if (rawProv instanceof BaseProvider) {
+                    providersList.push(rawProv);
+                } else if (typeof rawProv === 'object' && rawProv !== null) {
+                    const type = rawProv.type || rawProv.provider;
+                    if (!type) {
+                        throw new TypeError('[AgentCSA] Provider configuration object must specify "type" or "provider".');
+                    }
+                    
+                    const provModels = [];
+                    if (rawProv.model) {
+                        if (Array.isArray(rawProv.model)) {
+                            provModels.push(...rawProv.model);
+                        } else {
+                            provModels.push(rawProv.model);
+                        }
+                    } else {
+                        provModels.push(...models);
+                    }
+
+                    for (const m of provModels) {
+                        providersList.push(this.#instantiateProvider(type, {
+                            apiKey: rawProv.apiKey || apiKey,
+                            model: m,
+                            baseURL: rawProv.baseURL,
+                            anthropicVersion: rawProv.anthropicVersion,
+                        }));
+                    }
+                } else {
+                    throw new TypeError('[AgentCSA] provider must be an instance of BaseProvider or a configuration object.');
+                }
+            }
         } else {
             if (!apiKey) throw new TypeError('[AgentCSA] apiKey or provider is required.');
             const { GoogleProvider } = require('./providers/GoogleProvider');
-            this.#provider = new GoogleProvider({ apiKey, model });
+            for (const m of models) {
+                providersList.push(new GoogleProvider({ apiKey, model: m }));
+            }
         }
+
+        if (providersList.length === 0) {
+            throw new Error('[AgentCSA] No valid providers could be initialized.');
+        }
+
+        this.#providers = providersList;
+        this.#activeProviderIndex = 0;
 
         this.#agent = agent.build();
         this.#maxAgenticLoopTurns = maxAgenticLoopTurns;
@@ -659,26 +730,54 @@ class AutonomousCustomerServiceAgent extends EventEmitter {
         }
 
         try {
-            const res = await Promise.race([
-                this.#provider.generateContent({
-                    contents,
-                    systemInstruction: config.systemInstruction,
-                    tools: config.tools,
-                    config: {
-                        temperature: config.temperature,
-                        topP: config.topP,
-                        maxOutputTokens: config.maxOutputTokens,
-                        thinkingLevel: config.thinkingLevel,
-                    },
-                    signal: controller.signal,
-                }),
-                new Promise((_, reject) => {
-                    controller.signal.addEventListener('abort', () => reject(controller.signal.reason), { once: true });
-                }),
-            ]);
-            // Atraso para evitar estouro de rate limit em chamadas consecutivas (ajustável conforme necessidade, via parametro de configuração)
-            await this.#delay(this.#retryOptions.baseDelayMs * 5);
-            return res;
+            let attemptsInTurn = 0;
+            const maxFailoverAttempts = this.#providers.length;
+
+            while (true) {
+                const provider = this.#providers[this.#activeProviderIndex];
+                try {
+                    const res = await Promise.race([
+                        provider.generateContent({
+                            contents,
+                            systemInstruction: config.systemInstruction,
+                            tools: config.tools,
+                            config: {
+                                temperature: config.temperature,
+                                topP: config.topP,
+                                maxOutputTokens: config.maxOutputTokens,
+                                thinkingLevel: config.thinkingLevel,
+                            },
+                            signal: controller.signal,
+                        }),
+                        new Promise((_, reject) => {
+                            controller.signal.addEventListener('abort', () => reject(controller.signal.reason), { once: true });
+                        }),
+                    ]);
+                    // Atraso para evitar estouro de rate limit em chamadas consecutivas (ajustável conforme necessidade, via parametro de configuração)
+                    await this.#delay(this.#retryOptions.baseDelayMs * 5);
+                    return res;
+                } catch (err) {
+                    attemptsInTurn++;
+                    const is5xxOrUnavailability = this.#is5xxOrUnavailabilityError(err);
+
+                    if (is5xxOrUnavailability && attemptsInTurn < maxFailoverAttempts) {
+                        const nextIndex = (this.#activeProviderIndex + 1) % this.#providers.length;
+                        const nextProvider = this.#providers[nextIndex];
+
+                        this.emit(AgentEvents.PROVIDER_FALLBACK, {
+                            failedProvider: provider.getName(),
+                            failedModel: provider.model,
+                            nextProvider: nextProvider.getName(),
+                            nextModel: nextProvider.model,
+                            error: err,
+                        });
+
+                        this.#activeProviderIndex = nextIndex;
+                        continue;
+                    }
+                    throw err;
+                }
+            }
         } finally {
             clearTimeout(timer);
             if (signal && abortListener) {
@@ -1035,6 +1134,54 @@ class AutonomousCustomerServiceAgent extends EventEmitter {
             topP: this.#topP,
             thinkingLevel: this.#thinkingLevel,
         };
+    }
+
+    #is5xxOrUnavailabilityError(err) {
+        if (!err) return false;
+
+        const status = err.status || err.error?.code;
+        if (status) {
+            if (status === 429 || (status >= 500 && status < 600)) {
+                return true;
+            }
+        }
+
+        const msg = String(err.message || '').toLowerCase();
+        if (
+            msg.includes('internal error') ||
+            msg.includes('overloaded') ||
+            msg.includes('rate limit') ||
+            msg.includes('unavailable') ||
+            msg.includes('500') ||
+            msg.includes('502') ||
+            msg.includes('503') ||
+            msg.includes('504')
+        ) {
+            return true;
+        }
+
+        return false;
+    }
+
+    #instantiateProvider(type, options) {
+        const { GoogleProvider } = require('./providers/GoogleProvider');
+        const { OpenAIProvider } = require('./providers/OpenAIProvider');
+        const { OllamaProvider } = require('./providers/OllamaProvider');
+        const { AnthropicProvider } = require('./providers/AnthropicProvider');
+
+        const normalizedType = String(type || '').trim().toLowerCase();
+        switch (normalizedType) {
+            case 'google':
+                return new GoogleProvider(options);
+            case 'openai':
+                return new OpenAIProvider(options);
+            case 'ollama':
+                return new OllamaProvider(options);
+            case 'anthropic':
+                return new AnthropicProvider(options);
+            default:
+                throw new Error(`[AgentCSA] Unknown provider type: "${type}".`);
+        }
     }
 
     // Construcao de um system prompt padrao de uso geral e reforco de atencao, em especial, ao uso de ferramentas

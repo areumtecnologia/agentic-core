@@ -19,6 +19,7 @@ const AgentEvents = Object.freeze({
     ASYNC_RETRY_COMPLETED: 'async_retry_completed',   // Retry assíncrono concluído
     SYNC_RETRY_STARTED: 'sync_retry_started',      // Retry síncrono iniciado
     SYNC_RETRY_COMPLETED: 'sync_retry_completed',    // Retry síncrono concluído
+    PROVIDER_FALLBACK: 'provider_fallback',          // Transição automática de provedor por erro 5xx
 });
 
 module.exports = { AgentEvents };

@@ -22,7 +22,7 @@ async function example() {
     apiKey: GOOGLE_GEMINI_API_KEY,
     // model: 'gemma-4-31b-it', // 'gemma-4-26b-a4b-it',
     provider: new OllamaProvider({
-      model: 'gemma4'
+      model: 'LiquidAI/lfm2.5-350m:latest'
     }),
     // temperature: 0.1,
     agent: new AgentConfig(
@@ -86,7 +86,8 @@ async function example() {
     origin: { id: '12345', type: 'whatsapp', description: 'Lead via WhatsApp.' }
   });
 
-  await customerAgent.processMessage(session.id, "O que é isso?", { base64: IMAGE_BASE64, mimeType: 'image/png' });
+  // await customerAgent.processMessage(session.id, "O que é isso?", { base64: IMAGE_BASE64, mimeType: 'image/png' });
+  await customerAgent.processMessage(session.id, "Olá, quem é você?", {});
 };
 
 example();

@@ -13,12 +13,12 @@ async function main() {
         for await (const model of models) {
             console.log(model.name);
         }
-        // const response = await ai.models.generateContent({
-        //     model: 'gemma-4-31b-it',
-        //     contents: 'Olá, responda apenas: OK'
-        // });
+        const response = await ai.models.generateContent({
+            model: 'gemma-4-26b-a4b-it',
+            contents: 'Olá, responda apenas: OK'
+        });
 
-        // console.log(response.text);
+        console.log(response.text);
     } catch (error) {
         console.error('ERRO COMPLETO:');
         console.error(JSON.stringify(error, null, 2));

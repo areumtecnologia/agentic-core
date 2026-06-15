@@ -457,8 +457,8 @@ agent
   .on(AgentEvents.RETRY, ({ attempt, delay, error, session }) =>
     console.warn(`Retry ${attempt} em ${delay}ms`))
 
-  .on(AgentEvents.PROVIDER_FALLBACK, ({ failedProvider, failedModel, nextProvider, nextModel, error }) =>
-    console.warn(`Fallback: ${failedProvider} (${failedModel}) falhou com erro ${error.status || error.message}. Migrando para ${nextProvider} (${nextModel})`))
+  .on(AgentEvents.PROVIDER_FALLBACK, ({ failedProvider, failedModel, nextProvider, nextModel, error, session }) =>
+    console.warn(`Fallback na sessão ${session.id}: ${failedProvider} (${failedModel}) falhou com erro ${error.status || error.message}. Migrando para ${nextProvider} (${nextModel})`))
   
   .on(AgentEvents.ERROR, ({ error, source, session }) =>
     console.error(`Erro${source ? ` [${source}]` : ''}:`, error.message));

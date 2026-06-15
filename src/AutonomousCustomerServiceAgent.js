@@ -624,7 +624,7 @@ class AutonomousCustomerServiceAgent extends EventEmitter {
     async #callModelWithRetry(contents, config, session, depth, signal) {
         return withRetry(
             async () => {
-                const rawResponse = await this.#callModelWithTimeout(contents, config, signal);
+                const rawResponse = await this.#callModelWithTimeout(contents, config, session, signal);
 
                 // ── Validação da resposta para detectar erros transientes ─────
                 const candidate = rawResponse.candidates?.[0];
@@ -710,7 +710,7 @@ class AutonomousCustomerServiceAgent extends EventEmitter {
         );
     }
 
-    async #callModelWithTimeout(contents, config, signal) {
+    async #callModelWithTimeout(contents, config, session, signal) {
         const controller = new AbortController();
         const timer = setTimeout(
             () => controller.abort(new Error(`[AgentCSA] Turn exceeded ${this.#turnTimeoutMs}ms.`)),

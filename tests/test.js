@@ -20,14 +20,17 @@ const ffmpeg = require('fluent-ffmpeg');
 //   • inErrorState: Flag que marca sessão em erro (graceful degradation)
 //   • Resposta de indisponibilidade customizável (errorMessages)
 // ─────────────────────────────────────────────────────────────────────────────
-
+// modelos NvidiaProvider multimodais somente imagem:
+// "z-ai/glm-5.2", //"stepfun-ai/step-3.7-flash", //'google/diffusiongemma-26b-a4b-it' 
+// modelos NvidiaProvider multimodais com audio:
+// //'thinkingmachines/inkling', nvidia/nemotron-3-nano-omni-30b-a3b-reasoning
 async function example() {
   const customerAgent = new AgenticCore({
     // apiKey: GOOGLE_GEMINI_API_KEY,
     // model: 'gemma-4-31b-it', // 'gemma-4-26b-a4b-it',
     provider: new NvidiaProvider({
       apiKey: NVIDIA_API_KEY,
-      model: 'thinkingmachines/inkling', //'google/diffusiongemma-26b-a4b-it'
+      model: "nvidia/nemotron-3-ultra-550b-a55b",
     }),
     agent: new AgentConfig(
       'Monnalisa',

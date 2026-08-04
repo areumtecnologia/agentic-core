@@ -41,7 +41,10 @@ class GoogleProvider extends BaseProvider {
         const response = await this.#ai.models.generateContent({
             model: this.model,
             contents,
-            config: geminiConfig,
+            config: {
+                ...geminiConfig,
+                abortSignal: signal,
+            },
         });
 
         // O SDK do Google já retorna no formato esperado pelo core (candidates + usageMetadata)

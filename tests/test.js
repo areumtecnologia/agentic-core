@@ -6,7 +6,10 @@ const AUDIO_BASE64 = process.env.AUDIO_BASE64;
 const VIDEO_BASE64 = process.env.VIDEO_BASE64;
 const NVIDIA_API_KEY = process.env.NVIDIA_API_KEY;
 const { AgenticCore, Type, AgentEvents, AgentConfig, OllamaProvider, NvidiaProvider } = require('../src') //require('@areumtecnologia/autonomouscustomerserviceagent');
-
+const fs = require('fs');
+const { Readable } = require('stream');
+const { OpenAI } = require('openai');
+const ffmpeg = require('fluent-ffmpeg');
 // ─────────────────────────────────────────────────────────────────────────────
 // Exemplo de uso completo (multi-turno com tool call real)
 // 
@@ -24,7 +27,7 @@ async function example() {
     // model: 'gemma-4-31b-it', // 'gemma-4-26b-a4b-it',
     provider: new NvidiaProvider({
       apiKey: NVIDIA_API_KEY,
-      model: 'google/diffusiongemma-26b-a4b-it'
+      model: 'thinkingmachines/inkling', //'google/diffusiongemma-26b-a4b-it'
     }),
     agent: new AgentConfig(
       'Monnalisa',
@@ -82,11 +85,49 @@ async function example() {
     return 'Eu sou um assistente virtual chamado Monnalisa, criado pela Áreum Tecnologia para auxiliar clientes com suas solicitações.'
   });
 
-  const session = customerAgent.createSession(Date.now().toString(), {
+
+  const sid = Date.now();
+  const session = customerAgent.createSession(sid.toString(), {
     name: 'Renan',
     phone: '5591981648646',
+    sessionId: sid,
     origin: { id: '12345', type: 'whatsapp', description: 'Lead via WhatsApp.' }
   });
+
+  customerAgent.registerTool({
+    name: 'end_chat',
+    description: 'Retorna informações sobre você.',
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        sessionId: {
+          type: Type.STRING,
+          description: 'Retorna a ID da sessão a ser encerrada'
+        },
+        reason: {
+          type: Type.STRING,
+          description: 'Motivo pelo qual a sessão foi encerrada'
+        }
+      }
+    },
+  }, async (sessionId, reason) => {
+    const result = customerAgent.clearSession(sessionId, { reason });
+    return { success: result };
+  });
+
+  const caminhoOgg = process.env.AUDIO_OGG_PATH; // Arquivo OGG de entrada (ex: áudio do WhatsApp)
+
+  if (!fs.existsSync(caminhoOgg)) {
+    throw new Error(`Arquivo não encontrado no caminho: ${caminhoOgg}`);
+  }
+
+  console.log('🔄 Convertendo áudio OGG para formato WAV...');
+  // Realiza a conversão em memória e retorna os bytes brutos
+  const wavBuffer = await converterOggParaWavBuffer(caminhoOgg);
+
+  // Transforma o buffer final de WAV diretamente em Base64
+  const audioBase64 = wavBuffer.toString('base64');
+  console.log('✅ Conversão concluída com sucesso.');
 
   const questions = [{
     text: "Olá, quem é você?",
@@ -96,8 +137,8 @@ async function example() {
     text: "O que é isso?",
     attachments: { base64: IMAGE_BASE64, mimeType: 'image/png' }
   }, {
-    text: "Descreva...",
-    //attachments: { base64: AUDIO_BASE64, mimeType: 'audio/wav' }
+    text: "Transcreva este áudio:",
+    attachments: { base64: audioBase64, mimeType: 'audio/wav' }
   }];
   // Marcar a hora de inicio do turno e quanto tempo ele durou
   const startTime = Date.now();
@@ -110,5 +151,26 @@ async function example() {
   const duration = endTime - startTime;
   console.log(`[Turno] Turno 1 finalizado em ${duration}ms`);
 };
+
+
+/**
+ * Função utilitária que converte um arquivo .ogg local em um Buffer .wav (em memória)
+ * usando FFmpeg e Promises.
+ */
+function converterOggParaWavBuffer(caminhoOgg) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+
+    // Configura o fluxo de conversão do FFmpeg para a memória (Stream)
+    ffmpeg(caminhoOgg)
+      .toFormat('wav')
+      .audioFrequency(16000) // Otimiza para 16kHz (excelente para reconhecimento de voz)
+      .audioChannels(1)      // Converte para Mono (reduz o tamanho do payload)
+      .on('error', (err) => reject(err))
+      .pipe() // Cria um Stream de leitura com o resultado
+      .on('data', (chunk) => chunks.push(chunk))
+      .on('end', () => resolve(Buffer.concat(chunks)));
+  });
+}
 
 example();

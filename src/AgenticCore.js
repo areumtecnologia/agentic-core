@@ -7,6 +7,7 @@ const { AgentEvents } = require('./AgentEvents');
 const { withRetry } = require('./utils');
 const { Type } = require('./types');
 const { BaseProvider } = require('./providers/BaseProvider');
+const { ContextCompactor, InMemoryStore, EpisodicMemory, SemanticMemory } = require('./memory');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // AgenticCore
@@ -40,6 +41,13 @@ class AgenticCore extends EventEmitter {
     #syncBusyBySessionId = null;
     #debounceMs = 0;
     #sessionBuffers = new Map();
+    #successDelayMs = 0;
+    // ── Memória de longo prazo (Fase 1) ──
+    #memoryStore = null;
+    #compactor = null;
+    #episodicMemory = null;
+    #semanticMemory = null;
+    #compactionOptions = null;
 
     get #provider() {
         return this.#providers[this.#activeProviderIndex];
@@ -65,6 +73,8 @@ class AgenticCore extends EventEmitter {
      * @param {number}   [options.topP=0.95]
      * @param {string}   [options.thinkingLevel='HIGH']
      * @param {number}   [options.maxOutputTokens=32768]
+     * @param {number}   [options.debounceMs=0]               ms de debounce entre mensagens da mesma sessão
+     * @param {number}   [options.successDelayMs=0]           ms de atraso opcional após chamada bem-sucedida (anti-rate-limit). Padrão 0.
      */
     constructor({
         provider,
@@ -87,6 +97,9 @@ class AgenticCore extends EventEmitter {
         thinkingLevel = "HIGH",
         maxOutputTokens = 32_768,
         debounceMs = 0,
+        successDelayMs = 0,
+        memoryStore = null,
+        compaction = null,
     } = {}) {
         super();
         if (!agent) throw new TypeError('[AgentCSA] agent config is required.');
@@ -189,6 +202,28 @@ class AgenticCore extends EventEmitter {
         this.#unavailabilityMessage = unavailabilityMessage;
         this.#syncBusy = false;
         this.#debounceMs = debounceMs;
+        this.#successDelayMs = successDelayMs;
+
+        // ── Inicializa memória de longo prazo (opcional) ──
+        if (memoryStore) {
+            this.#memoryStore = memoryStore;
+        } else if (compaction) {
+            // Se compactação foi solicitada mas nenhum store foi passado, usa InMemoryStore como default
+            this.#memoryStore = new InMemoryStore();
+        }
+
+        if (compaction && this.#provider) {
+            this.#compactionOptions = compaction;
+            this.#compactor = new ContextCompactor({
+                provider: this.#provider,
+                compaction,
+            });
+        }
+
+        if (this.#memoryStore) {
+            this.#episodicMemory = new EpisodicMemory(this.#memoryStore);
+            this.#semanticMemory = new SemanticMemory(this.#memoryStore);
+        }
     }
 
     // ── Session Management ────────────────────────────────────────────────────
@@ -241,7 +276,7 @@ class AgenticCore extends EventEmitter {
         }
 
         // Limpa o buffer de debounce se houver
-        const buffer = this.#sessionBuffers.get(sessionId);
+        const buffer = this.#sessionBuffers.get(sid);
         if (buffer) {
             if (buffer.timer) {
                 clearTimeout(buffer.timer);
@@ -249,11 +284,11 @@ class AgenticCore extends EventEmitter {
             if (buffer.controller) {
                 buffer.controller.abort();
             }
-            this.#sessionBuffers.delete(sessionId);
+            this.#sessionBuffers.delete(sid);
         }
 
         const sessionData = session.toJSON(); // Copia o estado antes de deletar a sessão
-        this.#sessions.delete(sessionId);
+        this.#sessions.delete(sid);
 
         if (eventTrigger) {
             this.emit(AgentEvents.SESSION_CLEARED, { session: sessionData, reason, data });
@@ -378,6 +413,20 @@ class AgenticCore extends EventEmitter {
 
         this.#builtConfig = null; // invalida cache para recompilar o `#buildConfig`
         return this;
+    }
+
+    /**
+     * Remove uma tool do registro por nome.
+     * @param {string} name
+     * @returns {boolean} true se a tool existia e foi removida
+     */
+    unregisterTool(name) {
+        if (!name || typeof name !== 'string') return false;
+        const deleted = this.#toolRegistry.delete(name);
+        if (deleted) {
+            this.#builtConfig = null; // invalida cache
+        }
+        return deleted;
     }
 
     // ── Core: processMessage ──────────────────────────────────────────────────
@@ -536,9 +585,17 @@ class AgenticCore extends EventEmitter {
         const userTurn = this.#buildUserTurn(session, message);
         session.appendHistory(userTurn);
 
+        // ── Compactação de contexto (Fase 1.4) ──
+        // Verifica se a WorkingMemory atingiu o limiar e dispara compactação assíncrona.
+        if (this.#compactor && session.workingMemory?.needsCompaction?.()) {
+            this.#compactSessionContext(session, signal).catch(err => {
+                this.emit(AgentEvents.ERROR, { error: err, source: 'compaction', session: session.toJSON() });
+            });
+        }
+
         try {
             const { result, extraTurns } = await this.#agenticLoop(
-                [...session.history],
+                session.getHistory(),
                 this.#getConfig(),
                 0,
                 session,
@@ -556,7 +613,7 @@ class AgenticCore extends EventEmitter {
                     session.setHistory(history);
                 }
             }
-            return await this.#handleProcessingFailure(err, session, [...session.history]);
+            return await this.#handleProcessingFailure(err, session, session.getHistory(), signal);
         }
     }
 
@@ -584,6 +641,11 @@ class AgenticCore extends EventEmitter {
         this.emit(AgentEvents.RAW_RESPONSE, { rawResponse, session: session.toJSON() });
 
         const candidate = rawResponse.candidates?.[0];
+        if (!candidate) {
+            const err = new Error('[AgentCSA] Model response has no candidates.');
+            this.emit(AgentEvents.ERROR, { error: err, session: session.toJSON() });
+            throw err;
+        }
         const parts = candidate.content?.parts ?? [];
         const functionCallParts = parts.filter(p => p.functionCall);
 
@@ -673,47 +735,8 @@ class AgenticCore extends EventEmitter {
                         return false;
                     }
 
-                    // Timeout de turno do agente — retentável
-                    if (err?.message?.includes('Turn exceeded')) {
-                        return true;
-                    }
-
-                    // Timeout local
-                    if (err?.message?.includes('timed out')) {
-                        return true;
-                    }
-
-                    // AbortController timeout
-                    if (err?.name === 'AbortError') {
-                        return true;
-                    }
-
-                    // Erros de resposta inválida do modelo — retentáveis (transientes)
-                    if (err?.message?.includes('Model did not return any candidates') ||
-                        err?.message?.includes('Model returned parts without text or function_call')) {
-                        return true;
-                    }
-
-                    // Gemini/Internal server errors
-                    const status = err?.status || err?.error?.code;
-
-                    if ([429, 500, 502, 503, 504].includes(status)) {
-                        return true;
-                    }
-
-                    // Rate limit textual fallback
-                    const msg = String(err?.message || '').toLowerCase();
-
-                    if (
-                        msg.includes('internal error') ||
-                        msg.includes('overloaded') ||
-                        msg.includes('rate limit') ||
-                        msg.includes('unavailable')
-                    ) {
-                        return true;
-                    }
-
-                    return false;
+                    // Delega para a classificação centralizada de erros retentáveis
+                    return this.#isRetryableError(err);
                 },
 
                 onRetry: ({ attempt, delay, error }) => {
@@ -752,9 +775,10 @@ class AgenticCore extends EventEmitter {
         try {
             let attemptsInTurn = 0;
             const maxFailoverAttempts = this.#providers.length;
+            let currentIndex = this.#activeProviderIndex;
 
-            while (true) {
-                const provider = this.#providers[this.#activeProviderIndex];
+            while (attemptsInTurn < maxFailoverAttempts) {
+                const provider = this.#providers[currentIndex];
                 try {
                     const res = await Promise.race([
                         provider.generateContent({
@@ -773,15 +797,21 @@ class AgenticCore extends EventEmitter {
                             controller.signal.addEventListener('abort', () => reject(controller.signal.reason), { once: true });
                         }),
                     ]);
-                    // Atraso para evitar estouro de rate limit em chamadas consecutivas (ajustável conforme necessidade, via parametro de configuração)
-                    await this.#delay(this.#retryOptions.baseDelayMs * 5);
+                    // Atualiza atomicamente o provedor ativo global em sucesso
+                    this.#activeProviderIndex = currentIndex;
+
+                    // Atraso opcional para evitar estouro de rate limit em chamadas consecutivas.
+                    // Padrão 0 (sem delay em sucesso). Configure via options.successDelayMs.
+                    if (this.#successDelayMs > 0) {
+                        await this.#delay(this.#successDelayMs);
+                    }
                     return res;
                 } catch (err) {
                     attemptsInTurn++;
                     const is5xxOrUnavailability = this.#is5xxOrUnavailabilityError(err);
 
                     if (is5xxOrUnavailability && attemptsInTurn < maxFailoverAttempts) {
-                        const nextIndex = (this.#activeProviderIndex + 1) % this.#providers.length;
+                        const nextIndex = (currentIndex + 1) % this.#providers.length;
                         const nextProvider = this.#providers[nextIndex];
 
                         this.emit(AgentEvents.PROVIDER_FALLBACK, {
@@ -792,7 +822,7 @@ class AgenticCore extends EventEmitter {
                             error: err,
                         });
 
-                        this.#activeProviderIndex = nextIndex;
+                        currentIndex = nextIndex;
                         continue;
                     }
                     throw err;
@@ -924,7 +954,7 @@ class AgenticCore extends EventEmitter {
             ? message.parts.map(p => ({ ...p }))
             : [{ text: message }];
 
-        if (session.history.length > 0) {
+        if (session.getHistory().length > 0) {
             return {
                 role: 'user',
                 parts
@@ -967,7 +997,8 @@ class AgenticCore extends EventEmitter {
     }
 
     #onSessionExpired(sessionId) {
-        const session = this.#sessions.get(sessionId);
+        const sid = String(sessionId);
+        const session = this.#sessions.get(sid);
         if (!session) return;
 
         session.cancelIdle();
@@ -978,7 +1009,7 @@ class AgenticCore extends EventEmitter {
         }
 
         // Limpa o buffer de debounce se houver
-        const buffer = this.#sessionBuffers.get(sessionId);
+        const buffer = this.#sessionBuffers.get(sid);
         if (buffer) {
             if (buffer.timer) {
                 clearTimeout(buffer.timer);
@@ -986,17 +1017,22 @@ class AgenticCore extends EventEmitter {
             if (buffer.controller) {
                 buffer.controller.abort();
             }
-            this.#sessionBuffers.delete(sessionId);
+            this.#sessionBuffers.delete(sid);
         }
 
         const sessionData = session.toJSON();
-        this.#sessions.delete(sessionId);
+        this.#sessions.delete(sid);
         this.emit(AgentEvents.SESSION_EXPIRED, { session: sessionData });
     }
 
     async #onSessionIdle(sessionId) {
         const session = this.#sessions.get(sessionId);
         if (!session || session.terminated) return;
+
+        // Guarda de reentrada: se um processamento de idle já está em andamento
+        // para esta sessão, não dispara outro concorrente.
+        if (session.idleProcessing) return;
+        session.idleProcessing = true;
 
         session.cancelIdle();
 
@@ -1009,6 +1045,7 @@ class AgenticCore extends EventEmitter {
         } catch (error) {
             this.emit(AgentEvents.ERROR, { error, source: 'idle_timeout', session: session.toJSON() });
         } finally {
+            session.idleProcessing = false;
             if (session.idleRepeat && session.idleTimeoutMs > 0 && !session.terminated && this.#sessions.has(sessionId)) {
                 session.scheduleIdle(session.idleTimeoutMs);
             }
@@ -1020,19 +1057,58 @@ class AgenticCore extends EventEmitter {
     #isRetryableError(err) {
         if (!err) return false;
         const msg = String(err.message || '').toLowerCase();
+
+        // ── Exclusões explícitas (NUNCA retentável) ──
         if (msg.includes('session') && msg.includes('not found')) return false;
         if (msg.includes('session terminated') || msg.includes('terminated')) return false;
-        // Se for um erro de aborto iniciado pelo usuário (AbortError manual), não deve ser retentável
+        // Aborto iniciado pelo usuário (não por timeout de turno) não é retentável
         if (err.name === 'AbortError' && !msg.includes('turn exceeded')) return false;
         if (msg.includes('aborted') && !msg.includes('turn exceeded')) return false;
-        return true;
+        // Erros de "não suportado" / "inválido" / "bad request" são permanentes
+        if (msg.includes('not supported')) return false;
+        if (msg.includes('is not supported')) return false;
+        if (msg.includes('invalid') && !msg.includes('invalid_grant')) return false;
+        if (msg.includes('bad request')) return false;
+        if (msg.includes('unauthorized') || msg.includes('forbidden') || msg.includes('permission denied')) return false;
+        if (msg.includes('not found') && !msg.includes('session')) return false;
+
+        // ── Inclusões explícitas (erros transientes conhecidos) ──
+        // Timeout de turno do agente
+        if (msg.includes('turn exceeded')) return true;
+        // Timeout local
+        if (msg.includes('timed out')) return true;
+        // Erros de resposta inválida do modelo (podem ser transientes)
+        if (msg.includes('model did not return any candidates')) return true;
+        if (msg.includes('model returned parts without text or function_call')) return true;
+
+        // Erros HTTP transientes (429, 5xx)
+        const status = err?.status || err?.error?.code;
+        if ([429, 500, 502, 503, 504].includes(status)) return true;
+
+        // Fallback textual para erros transientes conhecidos
+        if (
+            msg.includes('internal error') ||
+            msg.includes('overloaded') ||
+            msg.includes('rate limit') ||
+            msg.includes('unavailable') ||
+            msg.includes('service unavailable') ||
+            msg.includes('temporarily')
+        ) {
+            return true;
+        }
+
+        // Default: NÃO retentável. Erros de validação, autenticação, formato,
+        // "not supported", etc. são permanentes e não devem entrar em retry loop.
+        return false;
     }
 
     #getRecoveryDelay(attempt) {
         const baseDelayMs = 1000; // 1 segundo
-        const maxDelayMs = Math.min(this.#retryScheduleMinutes * 60_000, 90_000); // no máximo 90 segundos ou retryScheduleMinutes
+        const maxDelayMs = this.#retryScheduleMinutes * 60_000; // respeita retryScheduleMinutes configurado
         const exponential = baseDelayMs * Math.pow(2, attempt - 1);
-        return Math.min(exponential, maxDelayMs);
+        // Jitter de até 25% do delay para evitar thundering herd
+        const jitter = Math.random() * baseDelayMs * 0.25;
+        return Math.min(exponential + jitter, maxDelayMs);
     }
 
     #buildUnavailableResponse(session) {
@@ -1052,21 +1128,39 @@ class AgenticCore extends EventEmitter {
             .trim();
     }
 
-    async #processSyncRetry(session, contents) {
+    async #processSyncRetry(session, contents, signal) {
         this.#setSyncBusy(session.id, true);
         const startAt = Date.now();
         let attempt = 1;
 
         while (true) {
+            if (signal?.aborted) {
+                this.#setSyncBusy(session.id, false);
+                throw new DOMException('The user aborted a request.', 'AbortError');
+            }
+
             this.emit(AgentEvents.SYNC_RETRY_STARTED, { session: session.toJSON(), attempt, retryMode: 'sync' });
 
             try {
-                const { result, extraTurns } = await this.#agenticLoop(contents, this.#getConfig(), 0, session);
+                const { result, extraTurns } = await this.#agenticLoop(contents, this.#getConfig(), 0, session, signal);
                 if (extraTurns.length) session.appendHistory(...extraTurns);
                 this.emit(AgentEvents.SYNC_RETRY_COMPLETED, { session: session.toJSON(), attempt, result });
                 this.#setSyncBusy(session.id, false);
                 return result;
             } catch (err) {
+                // Aborto do usuário interrompe o retry síncrono imediatamente
+                if (err.name === 'AbortError' || err.message?.includes('aborted')) {
+                    this.#setSyncBusy(session.id, false);
+                    throw err;
+                }
+
+                // Erros permanentes (não retentáveis) não entram em retry loop
+                if (!this.#isRetryableError(err)) {
+                    this.#setSyncBusy(session.id, false);
+                    this.emit(AgentEvents.ERROR, { error: err, session: session.toJSON() });
+                    return this.#buildUnavailableResponse(session);
+                }
+
                 if (attempt >= this.#retryScheduleAttempts || Date.now() - startAt >= this.#retryScheduleWindowMs) {
                     this.#setSyncBusy(session.id, false);
                     this.emit(AgentEvents.ERROR, { error: err, session: session.toJSON() });
@@ -1105,6 +1199,13 @@ class AgenticCore extends EventEmitter {
                 session.retryState = null;
                 this.emit(AgentEvents.ASYNC_RETRY_COMPLETED, { session: session.toJSON(), attempts: retryState.attempts, result });
             } catch (err) {
+                // Erros permanentes (não retentáveis) não entram em retry loop
+                if (!this.#isRetryableError(err)) {
+                    session.retryState = null;
+                    this.emit(AgentEvents.ERROR, { error: err, session: session.toJSON() });
+                    return;
+                }
+
                 retryState.attempts += 1;
                 if (retryState.attempts > this.#retryScheduleAttempts || Date.now() - retryState.startedAt >= this.#retryScheduleWindowMs) {
                     session.retryState = null;
@@ -1115,11 +1216,13 @@ class AgenticCore extends EventEmitter {
                 const delayMs = this.#getRecoveryDelay(retryState.attempts);
                 this.emit(AgentEvents.RETRY, { attempt: retryState.attempts, delay: delayMs, error: err, session: session.toJSON(), sync: false });
                 retryState.timerId = setTimeout(executeRetry, delayMs);
+                retryState.timerId.unref?.();
             }
         };
 
         const initialDelayMs = this.#getRecoveryDelay(1);
         retryState.timerId = setTimeout(executeRetry, initialDelayMs);
+        retryState.timerId.unref?.();
         session.retryState = retryState;
         this.emit(AgentEvents.ASYNC_RETRY_SCHEDULED, {
             session: session.toJSON(),
@@ -1130,7 +1233,7 @@ class AgenticCore extends EventEmitter {
         return this.#buildUnavailableResponse(session);
     }
 
-    async #handleProcessingFailure(error, session, contents) {
+    async #handleProcessingFailure(error, session, contents, signal) {
         if (!this.#isRetryableError(error)) {
             this.emit(AgentEvents.ERROR, { error, session: session.toJSON() });
             throw error;
@@ -1140,7 +1243,7 @@ class AgenticCore extends EventEmitter {
             if (this.#syncBusy && this.#syncBusyBySessionId !== session.id) {
                 throw new Error('[AgentCSA] Sync mode is active: another task is in progress. Please try again later.');
             }
-            return await this.#processSyncRetry(session, contents);
+            return await this.#processSyncRetry(session, contents, signal);
         }
 
         return this.#scheduleAsyncRetry(session, contents);
@@ -1273,6 +1376,66 @@ ${this.#agent.company.name ? `<work_context>
 </security>
 `;
     }
+
+    // ── Compactação de contexto (Fase 1.4) ────────────────────────────────────
+
+    /**
+     * Compacta os turns antigos da WorkingMemory em um resumo consolidado.
+     * Persiste o resumo na memória semântica e os turns antigos na memória episódica.
+     * @param {AgentSession} session
+     * @param {AbortSignal} [signal]
+     */
+    async #compactSessionContext(session, signal) {
+        const wm = session.workingMemory;
+        if (!wm || !wm.needsCompaction()) return;
+
+        const oldTurns = wm.getCompactableTurns();
+        if (oldTurns.length === 0) return;
+
+        const existingSummary = wm.compactedSummary;
+        const newSummary = await this.#compactor.compact(oldTurns, existingSummary, signal);
+
+        // Aplica a compactação na WorkingMemory
+        wm.applyCompaction(newSummary);
+
+        // Persiste os turns antigos na memória episódica (se disponível)
+        if (this.#episodicMemory) {
+            for (const turn of oldTurns) {
+                await this.#episodicMemory.remember({
+                    sessionId: session.id,
+                    turn,
+                    summary: newSummary,
+                    importance: 0.5,
+                    tags: ['compacted'],
+                });
+            }
+        }
+
+        // Persiste o resumo consolidado na memória semântica
+        if (this.#semanticMemory) {
+            await this.#semanticMemory.learn({
+                sessionId: session.id,
+                subject: 'conversation',
+                predicate: 'compacted_summary',
+                object: newSummary,
+                confidence: 0.9,
+                tags: ['summary'],
+            });
+        }
+
+        this.emit(AgentEvents.SESSION_UPDATED, { session: session.toJSON(), reason: 'compaction' });
+    }
+
+    // ── Acesso público à memória (Fase 1) ─────────────────────────────────────
+
+    /** @returns {EpisodicMemory|null} */
+    get episodicMemory() { return this.#episodicMemory; }
+
+    /** @returns {SemanticMemory|null} */
+    get semanticMemory() { return this.#semanticMemory; }
+
+    /** @returns {MemoryStore|null} */
+    get memoryStore() { return this.#memoryStore; }
 }
 
 module.exports = { AgenticCore };

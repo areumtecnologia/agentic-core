@@ -22,10 +22,10 @@ async function testGoogleReal() {
 
     const agent = new AutonomousCustomerServiceAgent({
         apiKey: GOOGLE_GEMINI_API_KEY,
-        model: 'gemini-2.5-flash', // Modelo multimodal adequado
-        thinkingLevel: 'OFF',      // Desativa o pensamento para evitar erro de compatibilidade
-        retryOptions: { maxAttempts: 1 }, // Evita loops demorados no teste
-        retryScheduleMinutes: 0.05,       // Se falhar, retenta rápido
+        model: 'gemini-2.5-flash',
+        thinkingLevel: 'OFF',
+        retryOptions: { maxAttempts: 1 },
+        retryScheduleMinutes: 0.05,
         agent: new AgentConfig(
             'AtendenteMultimodal',
             'Empresa de Teste',
@@ -53,9 +53,8 @@ async function testGoogleReal() {
 }
 
 async function testProviderTranslations() {
-    console.log('\n--- 2. Validando tradução de formatos nos outros Providers ---');
+    console.log('\n--- 2. Validando tradução de formatos nos outros Providers (OpenAI Standard SDK) ---');
 
-    // Turno do usuário simulado contendo a imagem base64
     const contents = [
         {
             role: 'user',
@@ -73,43 +72,30 @@ async function testProviderTranslations() {
         }
     ];
 
-    // Mock do fetch global para interceptar o body enviado para as APIs
     const originalFetch = globalThis.fetch;
     let lastRequestBody = null;
 
     globalThis.fetch = async (url, options) => {
-        lastRequestBody = JSON.parse(options.body || '{}');
-        // Retorna uma resposta mockada de sucesso para evitar erro na requisição
-        return {
-            ok: true,
+        if (options && options.body) {
+            lastRequestBody = JSON.parse(options.body);
+        }
+
+        const payload = JSON.stringify({
+            id: 'chatcmpl-mock',
+            object: 'chat.completion',
+            choices: [{ message: { role: 'assistant', content: 'Mock OpenAI Standard Response' } }],
+            usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 }
+        });
+
+        return new Response(payload, {
             status: 200,
-            json: async () => {
-                if (url.includes('anthropic.com')) {
-                    return {
-                        content: [{ type: 'text', text: 'Mock Anthropic Response' }],
-                        usage: { input_tokens: 10, output_tokens: 5 }
-                    };
-                }
-                if (url.includes('/api/chat')) {
-                    return {
-                        model: 'gemma4:e4b',
-                        message: { role: 'assistant', content: 'Mock Ollama Response' },
-                        done: true,
-                        prompt_eval_count: 8,
-                        eval_count: 4
-                    };
-                }
-                return {
-                    choices: [{ message: { content: 'Mock OpenAI Response' } }],
-                    usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 }
-                };
-            }
-        };
+            headers: { 'content-type': 'application/json' }
+        });
     };
 
     try {
-        // A. Validando OpenAI / Ollama
-        console.log('\n[OpenAI/Ollama] Traduzindo turno multimodal...');
+        // A. Validando OpenAIProvider
+        console.log('\n[OpenAIProvider] Traduzindo turno multimodal...');
         const openAI = new OpenAIProvider({ apiKey: 'mock-key', model: 'gpt-4o' });
         await openAI.generateContent({
             contents,
@@ -121,16 +107,20 @@ async function testProviderTranslations() {
         console.log('Mensagens enviadas para OpenAI no body da requisição:');
         console.log(JSON.stringify(lastRequestBody.messages, null, 2));
 
-        // Validação básica do formato
         const userMsg = lastRequestBody.messages.find(m => m.role === 'user');
         if (userMsg && Array.isArray(userMsg.content)) {
-            console.log('✓ OpenAI traduzido com sucesso para formato array/multimodal!');
+            const hasImage = userMsg.content.some(c => c.type === 'image_url' && c.image_url?.url?.includes(RED_PNG_BASE64));
+            if (hasImage) {
+                console.log('✓ OpenAI traduzido com sucesso para padrão multimodal openai (image_url)!');
+            } else {
+                console.error('✗ Erro: OpenAI não incluiu a imagem no formato image_url!');
+            }
         } else {
             console.error('✗ Erro: OpenAI não traduziu para formato de array!');
         }
 
-        // B. Validando Anthropic
-        console.log('\n[Anthropic] Traduzindo turno multimodal...');
+        // B. Validando AnthropicProvider (agora usando pacote OpenAI)
+        console.log('\n[AnthropicProvider] Traduzindo turno multimodal usando pacote OpenAI...');
         const anthropic = new AnthropicProvider({ apiKey: 'mock-key', model: 'claude-3-5-sonnet-20241022' });
         await anthropic.generateContent({
             contents,
@@ -139,23 +129,23 @@ async function testProviderTranslations() {
             config: { temperature: 0.7, maxOutputTokens: 100 }
         });
 
-        console.log('Mensagens enviadas para Anthropic no body da requisição:');
+        console.log('Mensagens enviadas para Anthropic (via OpenAI SDK) no body:');
         console.log(JSON.stringify(lastRequestBody.messages, null, 2));
 
         const anthropicUserMsg = lastRequestBody.messages.find(m => m.role === 'user');
         if (anthropicUserMsg && Array.isArray(anthropicUserMsg.content)) {
-            const hasImageSource = anthropicUserMsg.content.some(c => c.type === 'image' && c.source?.type === 'base64');
-            if (hasImageSource) {
-                console.log('✓ Anthropic traduzido com sucesso para formato image/base64!');
+            const hasImage = anthropicUserMsg.content.some(c => c.type === 'image_url');
+            if (hasImage) {
+                console.log('✓ AnthropicProvider traduzido com sucesso via pacote OpenAI!');
             } else {
-                console.error('✗ Erro: Anthropic não incluiu a estrutura da imagem base64!');
+                console.error('✗ Erro: AnthropicProvider não incluiu a estrutura image_url!');
             }
         } else {
-            console.error('✗ Erro: Anthropic não traduziu para formato de array!');
+            console.error('✗ Erro: AnthropicProvider não traduziu para formato de array!');
         }
 
-        // C. Validando Ollama
-        console.log('\n[Ollama] Traduzindo turno multimodal (imagem e áudio)...');
+        // C. Validando OllamaProvider (agora usando pacote OpenAI)
+        console.log('\n[OllamaProvider] Traduzindo turno multimodal (imagem e áudio) usando pacote OpenAI...');
         const contentsWithAudio = [
             {
                 role: 'user',
@@ -186,26 +176,25 @@ async function testProviderTranslations() {
             config: { temperature: 0.7, maxOutputTokens: 100 }
         });
 
-        console.log('Mensagens enviadas para Ollama no body da requisição:');
+        console.log('Mensagens enviadas para Ollama (via OpenAI SDK) no body:');
         console.log(JSON.stringify(lastRequestBody.messages, null, 2));
 
         const ollamaUserMsg = lastRequestBody.messages.find(m => m.role === 'user');
-        if (
-            ollamaUserMsg &&
-            Array.isArray(ollamaUserMsg.images) &&
-            ollamaUserMsg.images[0] === RED_PNG_BASE64 &&
-            Array.isArray(ollamaUserMsg.audio) &&
-            ollamaUserMsg.audio[0] === 'UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAAAAA=='
-        ) {
-            console.log('✓ Ollama traduzido com sucesso para formato nativo com arrays "images" e "audio" de base64!');
+        if (ollamaUserMsg && Array.isArray(ollamaUserMsg.content)) {
+            const hasImage = ollamaUserMsg.content.some(c => c.type === 'image_url');
+            const hasAudio = ollamaUserMsg.content.some(c => c.type === 'input_audio' && c.input_audio?.format === 'wav');
+            if (hasImage && hasAudio) {
+                console.log('✓ OllamaProvider traduzido com sucesso via pacote OpenAI (image_url e input_audio)!');
+            } else {
+                console.error('✗ Erro: OllamaProvider não incluiu os anexos multimodal no padrão OpenAI!');
+            }
         } else {
-            console.error('✗ Erro: Ollama não traduziu corretamente para o formato nativo com arrays "images" e "audio"!');
+            console.error('✗ Erro: OllamaProvider não traduziu para formato de array!');
         }
 
     } catch (error) {
         console.error('Erro na validação de traduções:', error);
     } finally {
-        // Restaura o fetch global original
         globalThis.fetch = originalFetch;
     }
 }

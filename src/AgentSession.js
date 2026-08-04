@@ -4,11 +4,13 @@
 // ─────────────────────────────────────────────────────────────────────────────
 const { v4: uuid } = require('uuid');
 const EventEmitter = require('events');
+// Importa a nova camada de memória de curto prazo
+const { WorkingMemory } = require('./memory');
 
 class AgentSession extends EventEmitter {
   /** @type {string}   */ id;
   /** @type {object}   */ user;
-  /** @type {object[]} */ history = [];        // `contents` acumulado (todos os turns)
+    /** @type {WorkingMemory} */ #workingMemory; // Memória de trabalho (janela deslizante)
   /** @type {number}   */ vulnerabilityCount = 0;
   /** @type {boolean}  */ terminated = false;
   /** @type {Date}     */ createdAt = new Date();
@@ -16,6 +18,7 @@ class AgentSession extends EventEmitter {
   /** @type {object|null} */ retryState = null;
   /** @type {number}   */ idleTimeoutMs = 0;
   /** @type {boolean}  */ idleRepeat = false;
+  /** @type {boolean}  */ idleProcessing = false;
 
     #ttlTimer = null;
     #onExpire;
@@ -28,7 +31,8 @@ class AgentSession extends EventEmitter {
         this.user = Object.freeze({ ...user });
         this.#onExpire = onExpire;
         this.#onIdle = onIdle;
-        this.history = [];
+        // Substitui o array de histórico por WorkingMemory (janela deslizante)
+        this.#workingMemory = new WorkingMemory({ maxTurns: 20, keepRecent: 10, minTurnsToCompact: 5 });
     }
 
     touch() { this.lastActivity = new Date(); }
@@ -55,20 +59,27 @@ class AgentSession extends EventEmitter {
     }
 
     appendHistory(...turns) {
-        this.history.push(...turns);
-        this.emit(AgentSessionEvents.HISTORY_UPDATED, this.history);
+        this.#workingMemory.append(...turns);
+        this.emit(AgentSessionEvents.HISTORY_UPDATED, this.getHistory());
     }
 
     // Obtem o historico da conversa
     getHistory() {
-        return this.history;
+        return this.#workingMemory.getTurns();
     }
 
     // Restaura o historico e turnos da conversa
     setHistory(history) {
         if (!Array.isArray(history)) throw new TypeError('[AgentSession] history must be an array.');
-        this.history = history;
-        this.emit(AgentSessionEvents.HISTORY_UPDATED, this.history);
+        // Reseta a WorkingMemory e repopula com o histórico fornecido
+        this.#workingMemory.clear();
+        this.#workingMemory.append(...history);
+        this.emit(AgentSessionEvents.HISTORY_UPDATED, this.getHistory());
+    }
+
+    // Acesso direto à WorkingMemory (usado pelo AgenticCore para compactação)
+    get workingMemory() {
+        return this.#workingMemory;
     }
 
     toJSON() {
@@ -79,8 +90,9 @@ class AgentSession extends EventEmitter {
             terminated: this.terminated,
             createdAt: this.createdAt,
             lastActivity: this.lastActivity,
-            turns: this.history.length,
-            history: this.history,
+            turns: this.getHistory().length,
+            // Exporta o histórico como array para compatibilidade
+            history: this.getHistory(),
             idleTimeoutMs: this.idleTimeoutMs,
             idleRepeat: this.idleRepeat,
         };

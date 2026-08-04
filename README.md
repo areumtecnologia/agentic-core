@@ -1,6 +1,6 @@
 # Agentic Core
 
-> **v3.0.1** — Framework profissional para orquestração de Agentes Autônomos em Node.js com suporte a múltiplos provedores redundantes (Google Gemini, OpenAI, Claude, Ollama, Nvidia), suporte nativo ao protocolo MCP (Model Context Protocol) como Cliente e Servidor, failover automático em caso de falhas 5xx, suporte a mídias (imagens, áudio, vídeo), gerenciamento concorrente transparente (debounce + abort) e sessões integradas.
+> **v3.1.0** — Framework profissional para orquestração de Agentes Autônomos em Node.js com suporte a múltiplos provedores redundantes (Google Gemini, OpenAI, Claude, Ollama, Nvidia), suporte nativo ao protocolo MCP (Model Context Protocol) como Cliente e Servidor, failover automático em caso de falhas 5xx, suporte a mídias (imagens, áudio, vídeo), gerenciamento concorrente transparente (debounce + abort), sessões integradas, **memória hierárquica com compactação de contexto**, **SubAgentes com delegação**, **orquestração paralela de tarefas (DAG)**, **plataforma multi-tenant** e **persistência de sessões**.
 
 ---
 
@@ -8,21 +8,23 @@
 
 | Recurso | Descrição |
 |---|---|
-| **Multi-Provider Nativo** | Suporte a **Google Gemini**, **OpenAI GPT**, **Anthropic Claude**, **Ollama** (modelos locais) e **Nvidia**. |
-| **Redundância e Failover** | Possibilidade de configurar múltiplos modelos/provedores. Transição automática imediata em caso de indisponibilidade (erro 5xx/rate limit/timeout). |
+| **Multi-Provider Nativo** | Suporte a **Google Gemini**, **OpenAI GPT**, **Anthropic Claude**, **Ollama** (modelos locais) e **Nvidia NIM**. |
+| **Redundância e Failover** | Possibilidade de configurar múltiplos modelos/provedores com `currentIndex` atômico. Transição automática imediata em caso de indisponibilidade (erro 5xx/rate limit/timeout). |
 | **Suporte Nativo a MCP** | Conecte-se a servidores MCP externos (Stdio/SSE) e importe ferramentas dinamicamente no agente, ou exponha o próprio agente como um MCP Server. |
+| **Memória Hierárquica** | `WorkingMemory` (janela deslizante), `ContextCompactor` (resumos via LLM), `EpisodicMemory` (episódios significativos) e `SemanticMemory` (fatos e preferências). |
+| **SubAgentes Isolados** | `SubAgent` para execução de tarefas especializadas em segundo plano, com gestão efêmera de sessão e desregistro automático de ferramentas temporárias. |
+| **Orquestração DAG** | `Orchestrator`, `TaskGraph` e `ParallelExecutor` para execução paralela de tarefas com grafos de dependências acíclicos. |
+| **Plataforma Multi-Tenant** | `PlatformManager` para gestão de múltiplos tenants, agentes e sessões isoladas. |
+| **Persistência de Sessões** | `SessionStore` e `InMemorySessionStore` para salvamento, restauração e exclusão persistente de estado. |
 | **Suporte Multimídia** | Envio de anexos (imagens, áudio, vídeo) em Base64 no processamento de mensagens. |
 | **Concorrência Transparente** | Gerenciamento automático de mensagens consecutivas (`debounceMs`) com cancelamento ativo no LLM. |
-| **Agentic Loop Completo** | Tool calls encadeados com execução recursiva e contextualizada |
-| **Gerenciamento de Sessões** | TTL configurável com renovação automática por atividade |
-| **Retry com Backoff Exponencial** | Recuperação automática de falhas com jitter configurável |
-| **Timeouts Granulares** | AbortController por turno (padrão 90s) e por ferramenta (70% do turno) |
-| **Registro Programático de Tools** | Schema JSON completo + handler assíncrono |
-| **Modos de Falha `sync` / `async`** | Controle de indisponibilidade com retry agendado |
-| **Detecção de Vulnerabilidades** | Rastreamento via ferramenta interna de segurança e encerramento automático de sessões suspeitas |
-| **Eventos Estruturados** | `EventEmitter` para monitoramento e integração externos |
-| **Raciocínio Nativo (`thought === true`)** | Separação nativa de raciocínio (internal thoughts) e resposta final para o usuário |
-| **`AgentManager`** | Gerenciador de múltiplos agentes independentes |
+| **Agentic Loop Completo** | Tool calls encadeados com execução recursiva e contextualizada. |
+| **Gerenciamento de Sessões** | TTL configurável com renovação automática por atividade e normalização transparente de chaves (string/número). |
+| **Registro Dinâmico de Tools** | Schema JSON completo, handlers assíncronos e desregistro dinâmico via `unregisterTool()`. |
+| **Retry com Backoff Exponencial** | Recuperação automática de falhas com jitter configurável e classificação centralizada de erros. |
+| **Timeouts Granulares** | AbortController por turno (padrão 90s) e por ferramenta (70% do turno). |
+| **Detecção de Vulnerabilidades** | Rastreamento via ferramenta interna de segurança e encerramento automático de sessões suspeitas. |
+| **Eventos Estruturados** | `EventEmitter` completo para monitoramento (`SESSION_CREATED`, `SESSION_UPDATED`, `PROVIDER_FALLBACK`, `RESPONSE`, etc.). |
 
 ---
 
@@ -44,8 +46,8 @@ npm install
 
 ### Pré-requisitos
 
-- Node.js `>=16.0.0`
-- Chave de API de um provedor compatível (Google Gemini, OpenAI, Anthropic) ou Ollama rodando localmente
+- Node.js `>=18.0.0`
+- Chave de API de um provedor compatível (Google Gemini, OpenAI, Anthropic, Nvidia) ou Ollama rodando localmente
 
 ---
 
@@ -63,13 +65,14 @@ GOOGLE_GEMINI_API_KEY=sua-chave-aqui
 # Se usar outros provedores:
 OPENAI_API_KEY=sua-chave-openai-aqui
 ANTHROPIC_API_KEY=sua-chave-anthropic-aqui
+NVIDIA_API_KEY=sua-chave-nvidia-aqui
 ```
 
 ---
 
 ## 🚀 Quickstart
 
-### Exemplo com Provedor Google (Gemini)
+### Exemplo Básico com Google Gemini
 
 ```javascript
 require('dotenv').config();
@@ -84,32 +87,26 @@ const {
 // 1. Configurar o agente
 const agentConfig = new AgentConfig(
   'Monnalisa',                                          // Nome do agente
-  'Minha Empresa',                                      // Nome da empresa
-  'Descrição da empresa e seus serviços.',              // Detalhes da empresa
-  'Agente de Vendas',                                   // Papel da missão (missionRole)
-  'Atuar como agente de vendas e atendimento.',         // Objetivo da missão
+  'Áreum Tecnologia',                                   // Nome da empresa
+  'Soluções em IA e Automação de Processos.',           // Detalhes da empresa
+  'Agente de Vendas',                                   // Papel da missão
+  'Atuar como assistente virtual e agente de vendas.',  // Objetivo da missão
   `1. Cumprimente o lead de forma acolhedora.
-   2. Identifique as necessidades do lead.
+   2. Identifique as necessidades do cliente.
    3. Utilize as ferramentas disponíveis para obter dados.
-   4. Efetive a venda, se aplicável.`,                  // Instruções da missão
+   4. Efetive o atendimento de forma humanizada.`,      // Instruções da missão
   'pt-BR'                                               // Idioma do raciocínio interno
 );
 
-// 2. Instanciar o agente usando múltiplos provedores ou modelos redundantes (Failover automático)
+// 2. Instanciar o agente com provedor
 const agent = new AgenticCore({
-  // Aceita também model como array de strings (ex: ['gemma-4-26b-a4b-it', 'gemma-4-31b-it'])
-  // ou providers como array de instâncias/objetos de configuração
   providers: [
     new GoogleProvider({
       apiKey: process.env.GOOGLE_GEMINI_API_KEY,
       model: 'gemma-4-26b-a4b-it'
-    }),
-    new GoogleProvider({
-      apiKey: process.env.GOOGLE_GEMINI_API_KEY,
-      model: 'gemma-4-31b-it'
     })
   ],
-  debounceMs: 1500, // 1.5s de debounce transparente para mensagens consecutivas
+  debounceMs: 1500,
   agent: agentConfig,
 });
 
@@ -127,34 +124,32 @@ agent.registerTool({
   return JSON.stringify({ products: ['Produto A', 'Produto B'] });
 });
 
-// 4. Criar sessão
+// 4. Criar sessão (aceita string ou número como ID)
 const session = agent.createSession('session-001', {
   name: 'João Silva',
   phone: '+55 11 98765-4321',
   email: 'joao@exemplo.com',
-  origin: { type: 'whatsapp', id: '12345', description: 'Lead via WhatsApp.' },
 });
 
 // 5. Processar mensagens
 const response = await agent.processMessage(session.id, 'Olá!');
 console.log(response.response);
-// → "Olá, João! Bem-vindo à Minha Empresa. Como posso ajudá-lo?"
 ```
 
 ---
 
 ## 🔮 Provedores de IA Suportados
 
-A biblioteca suporta diferentes provedores de IA de forma intercambiável. Basta instanciar o provedor desejado e passá-lo na propriedade `provider` (ou `providers`) do construtor.
+A biblioteca suporta múltiplos provedores de IA de forma intercambiável e resiliente.
 
-### Redundância e Failover (Múltiplos Provedores/Modelos)
-Você pode configurar múltiplos modelos e/ou provedores para failover automático em caso de indisponibilidade (erro 5xx, rate limits ou timeouts).
+### Redundância e Failover Automático
+
+Você pode configurar múltiplos modelos e/ou provedores para failover automático em caso de indisponibilidade (erro 5xx, rate limit ou timeout).
 
 ```javascript
 const { GoogleProvider, OpenAIProvider, AgenticCore } = require('@areumtecnologia/agentic-core');
 
 const agent = new AgenticCore({
-  // O campo providers aceita instâncias de BaseProvider ou objetos de configuração
   providers: [
     new GoogleProvider({ apiKey: 'key1', model: 'gemma-4-26b-a4b-it' }),
     { type: 'google', apiKey: 'key1', model: 'gemma-4-31b-it' },
@@ -162,437 +157,186 @@ const agent = new AgenticCore({
   ],
   agent: agentConfig
 });
+```
 
-// Se preferir usar o provedor padrão (GoogleProvider) para múltiplos modelos:
-const agentSimplificado = new AgenticCore({
-  apiKey: 'sua-gemini-key',
-  model: ['gemma-4-26b-a4b-it', 'gemma-4-31b-it'], // Failover automático entre os modelos caso um falhe
-  agent: agentConfig
+---
+
+## 🧠 Memória Hierárquica e Compactação de Contexto
+
+O Agentic Core possui uma camada de memória dividida em 4 níveis:
+
+1. **`WorkingMemory`**: Mantém a janela deslizante de $N$ turns recentes enviados ao LLM.
+2. **`ContextCompactor`**: Compacta automaticamente turns antigos em resumos estruturados via LLM.
+3. **`EpisodicMemory`**: Armazena episódios significativos da conversa para recuperação de contexto.
+4. **`SemanticMemory`**: Armazena fatos, preferências e conhecimento factual (`subject`, `predicate`, `object`).
+
+```javascript
+const { AgenticCore, InMemoryStore } = require('@areumtecnologia/agentic-core');
+
+const memoryStore = new InMemoryStore();
+
+const agent = new AgenticCore({
+  provider: new GoogleProvider({ apiKey: process.env.GOOGLE_GEMINI_API_KEY, model: 'gemma-4-26b-a4b-it' }),
+  agent: agentConfig,
+  memoryStore,
+  compaction: {
+    maxOutputTokens: 1024,
+    temperature: 0.3,
+    language: 'pt-BR'
+  }
 });
 ```
 
-### 1. Google Gemini Provider
-```javascript
-const { GoogleProvider } = require('@areumtecnologia/agentic-core');
+---
 
-const provider = new GoogleProvider({
-  apiKey: process.env.GOOGLE_GEMINI_API_KEY,
-  model: 'gemma-4-26b-a4b-it' // ou 'gemini-2.5-flash', 'gemini-2.5-pro'
+## 🤖 SubAgentes com Delegação de Tarefas
+
+O `SubAgent` permite executar tarefas especializadas em segundo plano utilizando a infraestrutura do agente pai.
+
+- Possui **sessão efêmera própria** limpa automaticamente ao finalizar.
+- Suporta **ferramentas temporárias** desregistradas automaticamente no bloco `finally`.
+
+```javascript
+const { SubAgent, AgentConfig } = require('@areumtecnologia/agentic-core');
+
+const subConfig = new AgentConfig('Pesquisador', 'Áreum', '...', 'Pesquisador', 'Buscar dados', '...');
+
+const researcher = new SubAgent({
+  parent: mainAgent,
+  config: subConfig,
+  name: 'researcher-subagent',
+  tools: [/* ferramentas exclusivas do subagente */]
 });
+
+const result = await researcher.execute('Pesquisar relatório financeiro do setor');
+console.log(result.output);
 ```
 
-### 2. OpenAI Provider
-```javascript
-const { OpenAIProvider } = require('@areumtecnologia/agentic-core');
+---
 
-const provider = new OpenAIProvider({
-  apiKey: process.env.OPENAI_API_KEY,
-  model: 'gpt-4o' // ou 'gpt-4o-mini'
-});
+## 🌐 Orquestração de Tarefas em Grafo (DAG)
+
+Orquestre tarefas complexas com dependências paralelas via `Orchestrator`, `TaskGraph` e `ParallelExecutor`:
+
+```javascript
+const { Orchestrator } = require('@areumtecnologia/agentic-core');
+
+const orchestrator = new Orchestrator({ maxConcurrent: 4 });
+
+orchestrator.addTask('task-1', { agent: subAgentA, task: 'Coletar dados' });
+orchestrator.addTask('task-2', { agent: subAgentB, task: 'Processar dados', dependsOn: ['task-1'] });
+
+const results = await orchestrator.execute();
 ```
 
-### 3. Anthropic Claude Provider
-```javascript
-const { AnthropicProvider } = require('@areumtecnologia/agentic-core');
+---
 
-const provider = new AnthropicProvider({
-  apiKey: process.env.ANTHROPIC_API_KEY,
-  model: 'claude-3-5-sonnet-latest'
-});
+## 🏢 Plataforma Multi-Tenant e Persistência
+
+### `PlatformManager`
+Gerencie múltiplos tenants com instâncias de agentes e métricas isoladas:
+
+```javascript
+const { PlatformManager } = require('@areumtecnologia/agentic-core');
+
+const platform = new PlatformManager();
+platform.registerTenant('tenant-empresa-a');
+const tenantAgent = platform.createAgent('tenant-empresa-a', agentConfig, { provider });
 ```
 
-### 4. Ollama Provider (Modelos Locais)
-Perfeito para rodar offline ou em servidores locais compatíveis com a API do OpenAI:
+### `SessionStore` & `InMemorySessionStore`
+Persista e restaure o estado das sessões:
+
 ```javascript
-const { OllamaProvider } = require('@areumtecnologia/agentic-core');
+const { InMemorySessionStore } = require('@areumtecnologia/agentic-core');
 
-const provider = new OllamaProvider({
-  model: 'gemma4',                  // Nome do modelo baixado no Ollama
-  baseURL: 'http://localhost:11434/v1' // Opcional, padrão da API local do Ollama
-});
-```
-
-### 5. Nvidia Provider (Nvidia NIM)
-Suporte para modelos executados na API da Nvidia (NIM):
-```javascript
-const { NvidiaProvider } = require('@areumtecnologia/agentic-core');
-
-const provider = new NvidiaProvider({
-  apiKey: process.env.NVIDIA_API_KEY,
-  model: 'minimaxai/minimax-m3' // Modelo de IA hospedado pela Nvidia
-});
+const store = new InMemorySessionStore();
+await store.save(session.id, session.toJSON());
 ```
 
 ---
 
 ## 📋 API de Referência
 
-### `new AgentConfig(name, companyName, companyDetails, missionRole, objective, instructions, reasoningLanguage?)`
+### Métodos Principais do `AgenticCore`
 
-Constrói a configuração do agente. **Obrigatório** — o construtor de `AgenticCore` exige uma instância de `AgentConfig`.
-
-| Parâmetro | Tipo | Padrão | Descrição |
-|---|---|---|---|
-| `name` | `string` | — | Nome do agente |
-| `companyName` | `string` | — | Nome da empresa |
-| `companyDetails` | `string` | — | Descrição da empresa |
-| `missionRole` | `string` | — | Papel/Cargo do agente na missão (ex: 'Agente de Vendas') |
-| `objective` | `string` | — | Objetivo da missão |
-| `instructions` | `string` | — | Protocolo de execução (instruções detalhadas) |
-| `reasoningLanguage` | `string` | `'en-US'` | Idioma do campo `reasoning` nas respostas |
-
----
-
-### `new AgenticCore(options)`
-
-| Opção | Tipo | Padrão | Descrição |
-|---|---|---|---|
-| `provider` | `BaseProvider \| object \| Array` | — | Provedor de IA. Aceita uma instância de `BaseProvider`, um objeto de configuração (ex: `{ type: 'google', apiKey: '...' }`) ou um array de provedores/configurações para failover em caso de indisponibilidade (erro 5xx). |
-| `providers` | `BaseProvider \| object \| Array` | — | Equivalente a `provider`. Permite a declaração legível de múltiplos provedores redundantes. |
-| `apiKey` | `string` | — | Chave Gemini (retrocompatível — instancia o `GoogleProvider` internamente caso nenhum provedor seja fornecido). |
-| `agent` | `AgentConfig` | **Obrigatório** | Instância de `AgentConfig` |
-| `debounceMs` | `number` | `0` | Tempo em ms para debounce e concatenação transparente de mensagens rápidas. `0` mantém desativado. |
-| `model` | `string \| string[]` | `'gemma-4-26b-a4b-it'` | Modelo Gemini (ou array de modelos) a ser usado no fallback do GoogleProvider. Se passado como array de strings, o agente realiza failover entre os modelos. |
-| `maxAgenticLoopTurns` | `number` | `9` | Máx. de iterações do agentic loop por mensagem |
-| `sessionTTL` | `number` | `1800000` | TTL da sessão em ms (padrão: 30 min) |
-| `turnTimeoutMs` | `number` | `90000` | Timeout por turno do loop em ms |
-| `maxVulnerabilityAttempts` | `number` | `3` | Tentativas antes de encerrar a sessão |
-| `temperature` | `number` | `1` | Temperatura do modelo (0–1) |
-| `topP` | `number` | `0.95` | Probabilidade de núcleo (top-p sampling) |
-| `thinkingLevel` | `string` | `'HIGH'` | Nível de raciocínio interno do modelo |
-| `maxOutputTokens` | `number` | `32768` | Tokens máximos na resposta |
-| `failureHandlingMode` | `'sync' \| 'async'` | `'sync'` | Modo de tratamento de falhas (com backoff progressivo exponencial) |
-| `retryScheduleMinutes` | `number` | `5` | Teto máximo para o intervalo entre as retentativas (min) |
-| `retryScheduleAttempts` | `number` | `24` | Máximo de tentativas agendadas |
-| `retryScheduleWindowMs` | `number` | `86400000` | Janela total de retentativas (24h) |
-| `unavailabilityMessage` | `string` | `'We are experiencing a temporary outage. We will contact you as soon as the problem is resolved.'` | Mensagem exibida ao usuário em caso de indisponibilidade |
-| `retryOptions` | `object` | `{ maxAttempts: 3, baseDelayMs: 900, maxDelayMs: 9000 }` | Opções do retry com backoff exponencial |
-
----
-
-### Métodos de Sessão
-
-#### `agent.createSession(id, user, options?)` → `SessionSnapshot`
-
-Cria uma nova sessão de atendimento. O `id` deve ser único — uma exceção é lançada caso já exista uma sessão com o mesmo ID.
-
-- **`id`**: `string` - ID único da sessão.
-- **`user`**: `object` - Informações do usuário (`name`, `phone`, `email`, etc.).
-- **`options`** (opcional): `object` - Opções extras de configuração da sessão:
-  - **`idleTimeout`** (opcional): `number` - Tempo de inatividade em milissegundos para disparar um evento e resposta automática de acompanhamento (`SESSION_IDLE_TIMEOUT`). Se for `null`, `undefined` ou `0`, o recurso permanece desativado (comportamento padrão).
-  - **`idleRepeat`** (opcional): `boolean` - Se definido como `true`, repete o evento de inatividade periodicamente (a cada período de `idleTimeout`) enquanto o usuário não responder.
-
-```javascript
-const session = agent.createSession('session-abc', {
-  name: 'Maria Souza',
-  phone: '5511999999999',
-  email: 'maria@exemplo.com',
-  origin: { type: 'instagram', id: '999', description: 'Lead via DM.' },
-}, {
-  idleTimeout: 300000, // 5 minutos de inatividade
-  idleRepeat: true     // Repetir a cada 5 minutos até obter resposta
-});
-```
-
-#### `agent.processMessage(sessionId, text, attachment?, options?)` → `Promise<AgentResponse>`
-
-Processa uma mensagem dentro de uma sessão existente. Gerencia todo o histórico de conversa, mídias enviadas, concorrência interna (se `debounceMs` estiver ativo) e o loop de ferramentas internamente.
-
-> [!NOTE]
-> A partir da versão **v2.2.x**, a ordem de parâmetros foi invertida para colocar o `sessionId` em primeiro lugar, permitindo suporte limpo a anexos opcionais.
-
-- **`sessionId`**: `string` - ID da sessão de atendimento.
-- **`text`**: `string` - Mensagem de texto enviada pelo usuário.
-- **`attachment`** (opcional): `object` - Anexo de mídia no formato `{ base64: string, mimeType: string }`.
-- **`options`** (opcional): `object` - Opções extras da chamada (ex: `{ signal: abortSignal }`).
-
-**Exemplo básico:**
-```javascript
-const response = await agent.processMessage(session.id, 'Quero saber sobre seus produtos.');
-console.log(response.response);
-```
-
-**Exemplo enviando imagem (Multimídia):**
-```javascript
-const response = await agent.processMessage(
-  session.id,
-  'O que tem nessa imagem?',
-  {
-    base64: 'iVBORw0KGgoAAAANSUhEUgAA...',
-    mimeType: 'image/png'
-  }
-);
-console.log(response.response);
-```
-
-**Exemplo passando AbortSignal manual:**
-```javascript
-const controller = new AbortController();
-const response = await agent.processMessage(
-  session.id,
-  'Buscar informações pesadas...',
-  {},
-  { signal: controller.signal }
-);
-```
-
-#### `agent.getSession(sessionId)` → `SessionSnapshot | null`
-
-Retorna um snapshot read-only da sessão.
-
-#### `agent.getSessionByUser(filter)` → `SessionSnapshot | null`
-
-Busca uma sessão por nome, telefone ou origem do usuário. Aceita string (nome ou telefone) ou objeto de filtro.
-
-```javascript
-// Por telefone (string)
-const s1 = agent.getSessionByUser('5511999999999');
-
-// Por objeto de filtro composto
-const s2 = agent.getSessionByUser({
-  name: 'Maria Souza',
-  origin: { type: 'instagram' },
-});
-```
-
-#### `agent.clearSession(sessionId)` → `boolean`
-
-Remove uma sessão manualmente, cancelando seu TTL, retentativas agendadas e buffers concorrentes pendentes. Emite `SESSION_CLEARED`.
-
-#### `agent.activeSessions` → `number`
-
-Getter que retorna o número de sessões ativas no momento.
-
-#### `agent.activeSessionsCount()` → `number`
-
-Método equivalente ao getter `activeSessions`.
-
-#### `agent.agentName` → `string`
-
-Getter que retorna o nome do agente configurado.
-
----
-
-### Registro de Ferramentas
-
-#### `agent.registerTool(declaration, handler)` → `this` (chainable)
-
-Registra ou substitui uma ferramenta customizada.
-
-**Registrar nova tool (declaração completa):**
-
-```javascript
-agent.registerTool({
-  name: 'check_availability',
-  description: 'Verifica disponibilidade de vagas para uma data.',
-  parameters: {
-    type: Type.OBJECT,
-    required: ['date'],
-    properties: {
-      date: { type: Type.STRING, description: 'Data no formato YYYY-MM-DD.' },
-    },
-  },
-}, async ({ date }, signal) => {
-  // signal: AbortSignal — use para cancelamentos com timeout
-  return JSON.stringify({ available: true, slots: 5 });
-});
-```
-
-**Substituir apenas o handler de uma tool existente:**
-
-```javascript
-agent.registerTool('check_availability', async ({ date }, signal) => {
-  // Novo handler com lógica atualizada
-  const data = await myApi.fetchAvailability(date, { signal });
-  return JSON.stringify(data);
-});
-```
-
-> **Nota:** O handler recebe `(args: object, signal: AbortSignal)`. O `signal` é fornecido pelo timeout interno da tool (70% do `turnTimeoutMs`). Use-o em chamadas externas para garantir cancelamento correto.
-
----
-
-### `AgentResponse` — Estrutura da Resposta
-
-A resposta de `processMessage` é gerada em formato livre e estruturada pela biblioteca ao separar as partes de raciocínio (`thought === true`) e a resposta final do modelo:
-
-```typescript
-{
-  sent_at: string;                             // Timestamp (DD/MM/YYYY HH:mm:ss, fuso Brasília)
-  reasoning: string;                           // Raciocínio nativo do modelo (extraído de parts com thought === true)
-  response: string;                            // Texto final da resposta enviada ao usuário
-  vulnerability_exploration_attempts?: number; // Tentativas de exploração detectadas na sessão
-}
-```
-
----
-
-## 🔄 Gestão Concorrente Transparente (Debounce & Abort)
-
-Em canais de mensagens instantâneas (como o WhatsApp e Telegram), os usuários costumam enviar várias mensagens consecutivas ("Oi!", "Tudo bem?", "Queria saber os horários...").
-
-Quando `debounceMs` é configurado (ex: `1500`):
-1. **Debounce Temporal**: O agente aguarda até que o usuário pare de digitar pelo tempo definido antes de submeter o texto concatenado ao LLM.
-2. **Cancelamento Ativo (Abort)**: Se o usuário enviar uma mensagem no momento em que o LLM estiver gerando a resposta anterior:
-   - A requisição ativa é abortada no LLM imediatamente (economizando custos de API e processamento).
-   - O turno de usuário incompleto é removido do histórico da sessão (garantindo que o histórico permaneça consistente).
-   - A Promise correspondente à mensagem abortada resolve instantaneamente com `{ aborted: true }` (prevenindo travamento do event loop).
-   - O agente inicia um novo debounce para processar as mensagens seguintes unificadas.
+- **`createSession(id, user, options?)`**: Cria uma nova sessão. `id` pode ser string ou número.
+- **`processMessage(sessionId, text, attachment?, options?)`**: Processa mensagens com suporte a anexos Base64 e `AbortSignal`.
+- **`registerTool(declaration, handler)`**: Registra ou sobrescreve uma ferramenta.
+- **`unregisterTool(name)`**: Remove uma ferramenta do registro por nome e invalida o cache de configuração.
+- **`clearSession(sessionId, options?)`**: Remove a sessão e limpa timers de TTL/Idle e buffers de debounce.
+- **`getSession(sessionId)`**: Retorna o objeto da sessão.
+- **`getSessionByUser(filter)`**: Busca sessão por nome, telefone ou origem.
 
 ---
 
 ## 🎯 Eventos
 
-Use `agent.on(AgentEvents.EVENT_NAME, callback)` para monitorar o ciclo de vida completo.
+Escute eventos com `agent.on(AgentEvents.EVENT_NAME, callback)`:
 
 ```javascript
 const { AgentEvents } = require('@areumtecnologia/agentic-core');
 
 agent
-  // ── Sessões ─────────────────────────────────────────────────────────────
-  .on(AgentEvents.SESSION_CREATED, ({ session }) =>
-    console.log(`Sessão criada: ${session.id}`))
-
-  .on(AgentEvents.SESSION_EXPIRED, ({ sessionId }) =>
-    console.log(`Sessão expirada: ${sessionId}`))
-
-  .on(AgentEvents.SESSION_CLEARED, ({ session }) =>
-    console.log(`Sessão limpa: ${session.id}`))
-
-  // ── Agentic Loop ─────────────────────────────────────────────────────────
-  .on(AgentEvents.TURN_START, ({ depth, session }) =>
-    console.log(`Turno ${depth} iniciado — sessão ${session.id}`))
-
-  .on(AgentEvents.TURN_END, ({ depth, type, session }) =>
-    console.log(`Turno ${depth} finalizado (${type}) — sessão ${session.id}`))
-
-  .on(AgentEvents.RESPONSE, ({ response, reasoning, session, usageMetadata }) =>
-    console.log(`[${session.id}]`, response))
-
-  // ── Ferramentas ──────────────────────────────────────────────────────────
-  .on(AgentEvents.TOOL_CALL, ({ name, args, session }) =>
-    console.log(`Tool chamada: ${name}`, args))
-
-  .on(AgentEvents.TOOL_RESULT, ({ name, result, session }) =>
-    console.log(`Tool resultado: ${name}`, result))
-
-  // ── Retry e Falhas ───────────────────────────────────────────────────────
-  .on(AgentEvents.RETRY, ({ attempt, delay, error, session }) =>
-    console.warn(`Retry ${attempt} em ${delay}ms`))
-
-  .on(AgentEvents.PROVIDER_FALLBACK, ({ failedProvider, failedModel, nextProvider, nextModel, error, session }) =>
-    console.warn(`Fallback na sessão ${session.id}: ${failedProvider} (${failedModel}) falhou com erro ${error.status || error.message}. Migrando para ${nextProvider} (${nextModel})`))
-  
-  .on(AgentEvents.ERROR, ({ error, source, session }) =>
-    console.error(`Erro${source ? ` [${source}]` : ''}:`, error.message));
+  .on(AgentEvents.SESSION_CREATED, ({ session }) => console.log(`Sessão criada: ${session.id}`))
+  .on(AgentEvents.SESSION_UPDATED, ({ session, reason }) => console.log(`Sessão atualizada: ${session.id} (${reason})`))
+  .on(AgentEvents.SESSION_EXPIRED, ({ session }) => console.log(`Sessão expirada: ${session.id}`))
+  .on(AgentEvents.SESSION_CLEARED, ({ session, reason }) => console.log(`Sessão limpa: ${session.id}`))
+  .on(AgentEvents.TURN_START, ({ depth, session }) => console.log(`Turno ${depth} iniciado`))
+  .on(AgentEvents.RESPONSE, ({ response, reasoning, usageMetadata }) => console.log('Resposta:', response))
+  .on(AgentEvents.TOOL_CALL, ({ name, args }) => console.log(`Tool chamada: ${name}`, args))
+  .on(AgentEvents.TOOL_RESULT, ({ name, result }) => console.log(`Tool resultado: ${name}`, result))
+  .on(AgentEvents.PROVIDER_FALLBACK, ({ failedProvider, nextProvider, error }) => console.warn(`Fallback: ${failedProvider} -> ${nextProvider}`))
+  .on(AgentEvents.ERROR, ({ error, source }) => console.error(`Erro [${source}]:`, error.message));
 ```
 
 ---
 
 ## 🔌 Suporte ao Protocolo MCP (Model Context Protocol)
 
-A biblioteca fornece suporte nativo ao **Model Context Protocol (MCP)**, permitindo que seu agente atue como um **MCP Client** (consumindo recursos e ferramentas externas) ou como um **MCP Server** (expondo as capacidades do agente para outros sistemas de terceiros).
-
-### 1. Atuando como MCP Client (Importando Ferramentas Externas)
-
-O `McpManager` conecta o agente a servidores MCP via transporte **Stdio** e importa todas as ferramentas expostas por eles. Elas são registradas dinamicamente e ficam disponíveis no loop de execução do agente.
+O `McpManager` e o `McpServer` oferecem suporte nativo ao protocolo MCP (JSON-RPC 2.0 via Stdio):
 
 ```javascript
-const { AgenticCore, AgentConfig, McpManager } = require('@areumtecnologia/agentic-core');
+// MCP Client (Importando ferramentas externas)
+const { McpManager } = require('@areumtecnologia/agentic-core');
+const mcp = new McpManager(agent);
+await mcp.registerServer('db', { command: 'node', args: ['mcp-server.js'] });
 
-const agent = new AgenticCore({
-  apiKey: process.env.GOOGLE_GEMINI_API_KEY,
-  agent: new AgentConfig('Monnalisa', 'Minha Empresa', '...')
-});
-
-const mcpManager = new McpManager(agent);
-
-// Registra e conecta ao servidor MCP PostgreSQL externo
-await mcpManager.registerServer('db_server', {
-  command: 'node',
-  args: ['path/to/postgresql-mcp-server/index.js'],
-  env: { DATABASE_URL: 'postgresql://localhost:5432/my_database' }
-});
-
-// A ferramenta "query_orders" exposta pelo PostgreSQL MCP Server 
-// agora está registrada no agente como "db_server_query_orders"!
-```
-
-### 2. Atuando como MCP Server (Expondo o Agente)
-
-Você pode expor as ferramentas e o processamento de conversas do próprio agente como um servidor MCP compatível para que ele possa ser plugado no **Claude Desktop**, **Cursor** ou outros clientes compatíveis.
-
-```javascript
-const { AgenticCore, McpServer, AgentConfig } = require('@areumtecnologia/agentic-core');
-
-const agent = new AgenticCore({
-  apiKey: process.env.GOOGLE_GEMINI_API_KEY,
-  agent: new AgentConfig('Monnalisa', 'Minha Empresa', '...')
-});
-
-// Cria e inicia o servidor MCP via Stdio
-const mcpServer = new McpServer(agent);
-mcpServer.start();
-
-// O servidor expõe a ferramenta "ask_agent" via stdin/stdout (JSON-RPC 2.0)
+// MCP Server (Expondo o agente como servidor MCP)
+const { McpServer } = require('@areumtecnologia/agentic-core');
+const server = new McpServer(agent);
+server.start();
 ```
 
 ---
 
-## 🔄 Modos de Tratamento de Falhas
-
-### `failureHandlingMode: 'sync'` (padrão)
-
-Quando o processamento falha, o agente bloqueia novas requisições da **mesma sessão** e tenta o reprocessamento. O tempo entre as tentativas de recuperação aumenta progressivamente (backoff exponencial iniciando em 1 segundo e dobrando a cada tentativa), mas respeitando o limite configurado em `retryScheduleMinutes` ou o limite máximo absoluto de 90 segundos. Outras sessões são bloqueadas durante o retry.
-
-### `failureHandlingMode: 'async'`
-
-O agente responde imediatamente com a `unavailabilityMessage` e agenda as retentativas em background, seguindo o mesmo backoff progressivo exponencial (dobrando a partir de 1 segundo) até o teto de 90 segundos. O atendimento de outras sessões **não é bloqueado**.
-
----
-
-## 🗂️ `AgentManager` — Múltiplos Agentes
-
-Gerencie múltiplos agentes em um único processo:
-
-```javascript
-const { AgentManager, AgenticCore, AgentConfig } = require('@areumtecnologia/agentic-core');
-
-const manager = new AgentManager();
-
-manager.add('vendas', new AgenticCore({ provider: providerVendas, agent: configVendas }));
-manager.add('suporte', new AgenticCore({ provider: providerSuporte, agent: configSuporte }));
-
-const agenteVendas = manager.get('vendas');
-agenteVendas.createSession('s-001', { name: 'Lead', phone: '...' });
-```
-
----
-
-## 🏗️ Estrutura do Projeto
+## 📁 Estrutura do Projeto
 
 ```
 agentic-core/
 ├── src/
-│   ├── index.js                          # Ponto de entrada — exports públicos
-│   ├── AgenticCore.js                    # Classe principal do agente
+│   ├── index.js                          # Entry point com exportações completas
+│   ├── AgenticCore.js                    # Core do agente e agentic loop
 │   ├── AgentConfig.js                    # Builder de configuração do agente
-│   ├── AgentSession.js                   # Estado de uma sessão de conversa
-│   ├── AgentEvents.js                    # Constantes de eventos (EventEmitter)
+│   ├── AgentSession.js                   # Estado e histórico da sessão
+│   ├── AgentEvents.js                    # Fonte única de verdade de eventos
 │   ├── AgentManager.js                   # Gerenciador de múltiplos agentes
-│   ├── mcp/                              # Integração nativa do Protocolo MCP
-│   │   ├── McpClient.js                  # Conexão JSON-RPC a servidores MCP
-│   │   ├── McpManager.js                 # Gerenciamento de servidores e injeção de tools
-│   │   └── McpServer.js                  # Exposição do agente como MCP Server
-│   ├── providers/                        # Provedores de IA suportados (Google, OpenAI, Anthropic, Ollama, Nvidia)
-│   └── utils.js                          # withRetry (backoff exponencial + jitter)
+│   ├── SubAgent.js                       # Agente especializado efêmero
+│   ├── types.js                          # Tipos neutros (Type, ThinkingLevel)
+│   ├── utils.js                          # withRetry com backoff e jitter
+│   ├── mcp/                              # Protocolo MCP (Client, Server, Manager)
+│   ├── memory/                           # Memória (Working, Compactor, Episodic, Semantic)
+│   ├── orchestrator/                     # Orquestração (TaskGraph, ParallelExecutor, Orchestrator)
+│   ├── persistence/                      # Persistência (SessionStore, InMemorySessionStore)
+│   ├── platform/                         # Multi-tenancy (PlatformManager)
+│   └── providers/                        # Providers (Google, OpenAI, Anthropic, Ollama, Nvidia)
 ├── tests/
-│   ├── test.js                           # Testes de integração e exemplos
-│   ├── test_mcp.js                       # Testes de integração do protocolo MCP
-│   ├── mock_mcp_server.js                # Servidor MCP Stdio mock para testes
-│   └── test_debounce_abort.js            # Simulação e validação de concorrência
-├── logs/                                 # Logs de execução (gerados em runtime)
-├── .env.example                          # Template de variáveis de ambiente
+│   ├── test_bugs_fix.js                  # Suíte de teste para correções de bugs
+│   ├── test_no_mutation.js               # Teste de regressão para imutabilidade de contents
+│   ├── test_retry_classification.js      # Validação de erros retentáveis vs permanentes
+│   ├── test_mcp.js                       # Testes do protocolo MCP
+│   ├── test_debounce_abort.js            # Concorrência e cancelamento
+│   └── ...                               # Outros testes de serviço e integração
 ├── package.json
 └── README.md
 ```
@@ -602,18 +346,14 @@ agentic-core/
 ## 🧪 Testes
 
 ```bash
+# Executar suíte padrão
 npm test
+
+# Executar testes específicos de regressão e correções
+node tests/test_bugs_fix.js
+node tests/test_no_mutation.js
+node tests/test_retry_classification.js
 ```
-
----
-
-## 🔐 Segurança
-
-### Proteção contra Exploração
-
-O agente possui mecanismo embutido de detecção de tentativas de exploração (prompt injection, extração de system prompt, engenharia social e bypass de regras) usando a ferramenta interna `report_vulnerability_attempt` disponibilizada ao modelo.
-
-Quando o modelo detecta um comportamento hostil do usuário, ele aciona essa ferramenta. O acionamento emite o evento `VULNERABILITY_EXPLORATION_DETECTED` e incrementa o contador da sessão. Após `maxVulnerabilityAttempts` tentativas registradas na sessão ativa, a mesma é encerrada automaticamente e `session.terminated = true`.
 
 ---
 

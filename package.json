@@ -1,6 +1,6 @@
 {
   "name": "@areumtecnologia/agentic-core",
-  "version": "3.0.1",
+  "version": "3.1.0",
   "description": "Framework profissional para orquestração de Agentes Autônomos em Node.js com suporte multi-provedor (Gemini, OpenAI, Anthropic, Ollama, Nvidia), failover automático, sessões com TTL, concorrência temporal e integração nativa ao protocolo MCP.",
   "license": "ISC",
   "author": "Áreum Tecnologia",
@@ -27,6 +27,8 @@
   },
   "dependencies": {
     "@google/genai": "^2.9.0",
+    "fluent-ffmpeg": "^2.1.3",
+    "openai": "^6.49.0",
     "uuid": "^14.0.0"
   },
   "devDependencies": {

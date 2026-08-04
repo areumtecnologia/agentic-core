@@ -7,20 +7,21 @@ const { AutonomousCustomerServiceAgent, AgentConfig, NvidiaProvider } = require(
 async function runMockTest() {
     console.log('=== Executando Teste Mockado para NvidiaProvider ===');
 
-    // Salva o fetch original
     const originalFetch = global.fetch;
 
-    // Mock simples de fetch
     global.fetch = async (url, options) => {
         assert.strictEqual(url, 'https://integrate.api.nvidia.com/v1/chat/completions');
         assert.strictEqual(options.method, 'POST');
-        assert.strictEqual(options.headers['Authorization'], 'Bearer mock-nvidia-key');
         
+        // Headers no fetch do SDK openai podem vir em objeto ou Headers
+        const authHeader = options.headers?.authorization || options.headers?.Authorization || options.headers?.get?.('authorization');
+        assert.strictEqual(authHeader, 'Bearer mock-nvidia-key');
+
         const body = JSON.parse(options.body);
         assert.strictEqual(body.model, 'minimaxai/minimax-m3');
         assert.strictEqual(body.temperature, 0.7);
         assert.strictEqual(body.max_tokens, 100);
-        
+
         // Verifica se a estrutura de mensagens contém o system prompt
         assert.strictEqual(body.messages[0].role, 'system');
         assert.strictEqual(body.messages[0].content.includes('Você é um assistente virtual'), true);
@@ -29,31 +30,32 @@ async function runMockTest() {
         assert.strictEqual(body.messages[1].role, 'user');
         assert.strictEqual(body.messages[1].content.includes('Qual o sentido da vida?'), true);
 
-        // Retorna resposta mockada com sucesso
-        return {
-            ok: true,
-            json: async () => ({
-                id: 'chatcmpl-mock-id',
-                object: 'chat.completion',
-                created: Date.now(),
-                model: 'minimaxai/minimax-m3',
-                choices: [
-                    {
-                        index: 0,
-                        message: {
-                            role: 'assistant',
-                            content: 'O sentido da vida é aprender e evoluir.'
-                        },
-                        finish_reason: 'stop'
-                    }
-                ],
-                usage: {
-                    prompt_tokens: 15,
-                    completion_tokens: 10,
-                    total_tokens: 25
+        const responsePayload = JSON.stringify({
+            id: 'chatcmpl-mock-id',
+            object: 'chat.completion',
+            created: Date.now(),
+            model: 'minimaxai/minimax-m3',
+            choices: [
+                {
+                    index: 0,
+                    message: {
+                        role: 'assistant',
+                        content: 'O sentido da vida é aprender e evoluir.'
+                    },
+                    finish_reason: 'stop'
                 }
-            })
-        };
+            ],
+            usage: {
+                prompt_tokens: 15,
+                completion_tokens: 10,
+                total_tokens: 25
+            }
+        });
+
+        return new Response(responsePayload, {
+            status: 200,
+            headers: { 'content-type': 'application/json' }
+        });
     };
 
     try {
@@ -82,12 +84,11 @@ async function runMockTest() {
         });
 
         const response = await agent.processMessage(session.id, 'Qual o sentido da vida?');
-        
+
         console.log('Resposta Recebida:', response);
         assert.strictEqual(response.response, 'O sentido da vida é aprender e evoluir.');
         console.log('✔ Teste mockado concluído com sucesso!\n');
     } finally {
-        // Restaura o fetch original
         global.fetch = originalFetch;
     }
 }
@@ -104,7 +105,7 @@ async function runRealTest() {
         apiKey: apiKey,
         provider: new NvidiaProvider({
             apiKey: apiKey,
-            model: 'minimaxai/minimax-m3' // Modelo minimaxm3 conforme exemplo
+            model: 'minimaxai/minimax-m3'
         }),
         temperature: 0.7,
         maxOutputTokens: 150,

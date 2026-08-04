@@ -1,34 +1,53 @@
 'use strict';
 
+const OpenAI = require('openai');
 const { BaseProvider } = require('./BaseProvider');
 
 // ─────────────────────────────────────────────────────────────────────────────
-// OpenAIProvider — implementação para a API Chat Completions da OpenAI
-// Também compatível com APIs que seguem o padrão OpenAI (Qwen, Together, etc.)
-// Usa fetch nativo do Node.js (>= 18) para evitar dependências externas.
+// OpenAIProvider — implementação usando o SDK oficial 'openai'
+// Servindo também de base para todos os provedores compatíveis com a API OpenAI
 // ─────────────────────────────────────────────────────────────────────────────
 
 const DEFAULT_BASE_URL = 'https://api.openai.com/v1';
 
 class OpenAIProvider extends BaseProvider {
+    #client;
     #apiKey;
     #baseURL;
 
     /**
      * @param {object} options
-     * @param {string} options.apiKey   Chave de API
-     * @param {string} options.model    Nome do modelo (ex: 'gpt-4o', 'gpt-4o-mini')
+     * @param {string} [options.apiKey]   Chave de API
+     * @param {string} options.model      Nome do modelo (ex: 'gpt-4o', 'gpt-4o-mini')
      * @param {string} [options.baseURL='https://api.openai.com/v1']  URL base da API
+     * @param {boolean} [options.allowEmptyApiKey=false] Permite apiKey vazia (ex: Ollama local)
+     * @param {object} [options.openAIOptions={}] Opções adicionais para o construtor OpenAI SDK
      */
-    constructor({ apiKey, model, baseURL = DEFAULT_BASE_URL } = {}) {
+    constructor({ apiKey, model, baseURL = DEFAULT_BASE_URL, allowEmptyApiKey = false, openAIOptions = {} } = {}) {
         super({ model });
-        if (!apiKey) throw new TypeError('[OpenAIProvider] apiKey is required.');
-        this.#apiKey = apiKey;
-        this.#baseURL = baseURL.replace(/\/+$/, ''); // remove trailing slash
+        if (!apiKey && !allowEmptyApiKey) {
+            throw new TypeError(`[${new.target.name}] apiKey is required.`);
+        }
+        this.#apiKey = apiKey || 'ollama';
+        this.#baseURL = (baseURL || DEFAULT_BASE_URL).replace(/\/+$/, '');
+
+        this.#client = new OpenAI({
+            apiKey: this.#apiKey,
+            baseURL: this.#baseURL,
+            ...openAIOptions,
+        });
     }
 
     getName() {
         return 'openai';
+    }
+
+    /**
+     * Retorna a instância do SDK OpenAI.
+     * @returns {OpenAI}
+     */
+    getClient() {
+        return this.#client;
     }
 
     /**
@@ -41,40 +60,23 @@ class OpenAIProvider extends BaseProvider {
      * @returns {Promise<import('./BaseProvider').ProviderResponse>}
      */
     async generateContent({ contents, systemInstruction, tools, config, signal }) {
-        const messages = this.#translateContentsToMessages(contents, systemInstruction);
-        const openAITools = this.#translateToolDeclarations(tools);
+        const messages = this.translateContentsToMessages(contents, systemInstruction);
+        const openAITools = this.translateToolDeclarations(tools);
 
         const body = {
             model: this.model,
             messages,
-            temperature: config.temperature,
-            max_tokens: config.maxOutputTokens,
-            top_p: config.topP,
+            temperature: config?.temperature,
+            max_tokens: config?.maxOutputTokens,
+            top_p: config?.topP,
         };
 
         if (openAITools.length > 0) {
             body.tools = openAITools;
         }
 
-        const response = await fetch(`${this.#baseURL}/chat/completions`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${this.#apiKey}`,
-            },
-            body: JSON.stringify(body),
-            signal,
-        });
-
-        if (!response.ok) {
-            const errorBody = await response.text().catch(() => '');
-            const err = new Error(`[OpenAIProvider] API error ${response.status} ${response.statusText}: ${errorBody}`);
-            err.status = response.status;
-            throw err;
-        }
-
-        const data = await response.json();
-        return this.#translateResponseToProvider(data);
+        const completion = await this.#client.chat.completions.create(body, { signal });
+        return this.translateResponseToProvider(completion);
     }
 
     // ── Tradução: Histórico (Gemini → OpenAI) ────────────────────────────────
@@ -85,8 +87,9 @@ class OpenAIProvider extends BaseProvider {
      * @param {string}   systemInstruction
      * @returns {object[]}
      */
-    #translateContentsToMessages(contents, systemInstruction) {
+    translateContentsToMessages(contents, systemInstruction) {
         const messages = [];
+        const toolCallIdsByIndex = new Map();
 
         if (systemInstruction) {
             messages.push({ role: 'system', content: systemInstruction });
@@ -96,15 +99,14 @@ class OpenAIProvider extends BaseProvider {
             const turn = contents[i];
 
             if (turn.role === 'user') {
-                messages.push(...this.#translateUserTurn(turn));
+                messages.push(...this.translateUserTurn(turn));
             } else if (turn.role === 'model') {
-                const toolCallIds = this.#translateModelTurn(turn, messages);
-                // Verifica se o próximo turno é tool e associa os IDs
-                if (toolCallIds.length > 0 && i + 1 < contents.length && contents[i + 1].role === 'tool') {
-                    contents[i + 1]._openAIToolCallIds = toolCallIds;
+                const toolCallIds = this.translateModelTurn(turn, messages);
+                if (toolCallIds.length > 0) {
+                    toolCallIdsByIndex.set(i + 1, toolCallIds);
                 }
             } else if (turn.role === 'tool') {
-                this.#translateToolTurn(turn, messages);
+                this.translateToolTurn(turn, messages, toolCallIdsByIndex.get(i));
             }
         }
 
@@ -112,10 +114,12 @@ class OpenAIProvider extends BaseProvider {
     }
 
     /**
+     * Converte o turno do usuário extraindo textos e anexos multimodais (imagens, áudios, vídeos, documentos).
+     * Conforme os padrões da API OpenAI.
      * @param {object} turn
      * @returns {object[]}
      */
-    #translateUserTurn(turn) {
+    translateUserTurn(turn) {
         const hasInlineData = turn.parts.some(p => p.inlineData);
 
         if (!hasInlineData) {
@@ -132,12 +136,61 @@ class OpenAIProvider extends BaseProvider {
                 });
             } else if (part.inlineData) {
                 const { mimeType, data } = part.inlineData;
-                content.push({
-                    type: 'image_url',
-                    image_url: {
-                        url: `data:${mimeType};base64,${data}`
+                const base64Url = data.startsWith('data:') ? data : `data:${mimeType};base64,${data}`;
+                const rawBase64 = data.replace(/^data:[^;]+;base64,/, '');
+
+                if (mimeType.startsWith('image/')) {
+                    content.push({
+                        type: 'image_url',
+                        image_url: {
+                            url: base64Url
+                        }
+                    });
+                } else if (mimeType.startsWith('audio/')) {
+                    const formatExt = mimeType.split('/')[1]?.split(';')[0]?.toLowerCase() || 'wav';
+                    const format = formatExt === 'mpeg' ? 'mp3' : formatExt;
+                    content.push({
+                        type: 'input_audio',
+                        input_audio: {
+                            data: rawBase64,
+                            format
+                        }
+                    });
+                } else if (mimeType.startsWith('video/')) {
+                    content.push({
+                        type: 'video_url',
+                        video_url: {
+                            url: base64Url
+                        }
+                    });
+                } else if (mimeType === 'application/pdf') {
+                    content.push({
+                        type: 'image_url',
+                        image_url: {
+                            url: base64Url
+                        }
+                    });
+                } else if (mimeType.startsWith('text/')) {
+                    try {
+                        const textContent = Buffer.from(rawBase64, 'base64').toString('utf-8');
+                        content.push({
+                            type: 'text',
+                            text: `[Anexo ${mimeType}]\n${textContent}`
+                        });
+                    } catch {
+                        content.push({
+                            type: 'image_url',
+                            image_url: { url: base64Url }
+                        });
                     }
-                });
+                } else {
+                    content.push({
+                        type: 'image_url',
+                        image_url: {
+                            url: base64Url
+                        }
+                    });
+                }
             }
         }
         return [{ role: 'user', content }];
@@ -148,7 +201,7 @@ class OpenAIProvider extends BaseProvider {
      * @param {object[]} messages
      * @returns {string[]}  IDs gerados para tool_calls (para correlacionar com o turno tool seguinte)
      */
-    #translateModelTurn(turn, messages) {
+    translateModelTurn(turn, messages) {
         const assistantMsg = { role: 'assistant' };
         const toolCallIds = [];
 
@@ -182,12 +235,13 @@ class OpenAIProvider extends BaseProvider {
     /**
      * @param {object} turn
      * @param {object[]} messages
+     * @param {string[]} [toolCallIds]  IDs gerados no turno model anterior
      */
-    #translateToolTurn(turn, messages) {
-        const toolCallIds = turn._openAIToolCallIds || [];
-
+    translateToolTurn(turn, messages, toolCallIds = []) {
         turn.parts.forEach((part, index) => {
             const fnResponse = part.functionResponse;
+            if (!fnResponse) return;
+
             const toolCallId = toolCallIds[index] || `call_${fnResponse.name}_${index}`;
             const content = typeof fnResponse.response?.result === 'string'
                 ? fnResponse.response.result
@@ -208,12 +262,12 @@ class OpenAIProvider extends BaseProvider {
      * @param {object[]} tools  Array de { declaration, handler }
      * @returns {object[]}
      */
-    #translateToolDeclarations(tools) {
+    translateToolDeclarations(tools) {
         if (!tools || tools.length === 0) return [];
 
         return tools.map(t => {
             const decl = t.declaration || t;
-            const parameters = this.#convertTypesToLowerCase(
+            const parameters = this.convertTypesToLowerCase(
                 JSON.parse(JSON.stringify(decl.parameters || { type: 'object', properties: {} }))
             );
 
@@ -232,13 +286,13 @@ class OpenAIProvider extends BaseProvider {
 
     /**
      * Converte a resposta da API OpenAI para o formato padronizado (ProviderResponse).
-     * @param {object} data  Resposta bruta da API OpenAI
+     * @param {object} data  Resposta bruta ou objeto Completion da API OpenAI
      * @returns {import('./BaseProvider').ProviderResponse}
      */
-    #translateResponseToProvider(data) {
+    translateResponseToProvider(data) {
         const choice = data.choices?.[0];
         if (!choice) {
-            throw new Error('[OpenAIProvider] API returned no choices.');
+            throw new Error(`[${this.constructor.name}] API returned no choices.`);
         }
 
         const message = choice.message;
@@ -248,12 +302,18 @@ class OpenAIProvider extends BaseProvider {
             parts.push({ text: message.content });
         }
 
+        if (message.reasoning_content || message.thought) {
+            parts.push({ thought: message.reasoning_content || message.thought });
+        }
+
         if (message.tool_calls && message.tool_calls.length > 0) {
             for (const tc of message.tool_calls) {
                 parts.push({
                     functionCall: {
                         name: tc.function.name,
-                        args: this.#safeParseJSON(tc.function.arguments),
+                        args: typeof tc.function.arguments === 'string'
+                            ? this.safeParseJSON(tc.function.arguments)
+                            : tc.function.arguments ?? {},
                     },
                 });
             }
@@ -281,7 +341,7 @@ class OpenAIProvider extends BaseProvider {
      * @param {object} obj
      * @returns {object}
      */
-    #convertTypesToLowerCase(obj) {
+    convertTypesToLowerCase(obj) {
         if (!obj || typeof obj !== 'object') return obj;
 
         if (typeof obj.type === 'string') {
@@ -289,11 +349,11 @@ class OpenAIProvider extends BaseProvider {
         }
         if (obj.properties) {
             for (const key of Object.keys(obj.properties)) {
-                this.#convertTypesToLowerCase(obj.properties[key]);
+                this.convertTypesToLowerCase(obj.properties[key]);
             }
         }
         if (obj.items) {
-            this.#convertTypesToLowerCase(obj.items);
+            this.convertTypesToLowerCase(obj.items);
         }
         return obj;
     }
@@ -303,7 +363,7 @@ class OpenAIProvider extends BaseProvider {
      * @param {string} str
      * @returns {object}
      */
-    #safeParseJSON(str) {
+    safeParseJSON(str) {
         try {
             return JSON.parse(str || '{}');
         } catch {

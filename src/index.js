@@ -31,6 +31,11 @@ const {
     AnthropicProvider,
     NvidiaProvider,
 } = require('./providers');
+const { MemoryStore, InMemoryStore, WorkingMemory, ContextCompactor, EpisodicMemory, SemanticMemory } = require('./memory');
+const { SubAgent } = require('./SubAgent');
+const { Orchestrator, TaskGraph, ParallelExecutor } = require('./orchestrator');
+const { PlatformManager } = require('./platform');
+const { SessionStore, InMemorySessionStore } = require('./persistence');
 
 module.exports = {
     AgenticCore,
@@ -52,4 +57,22 @@ module.exports = {
     McpManager,
     McpClient,
     McpServer,
+    // ── Fase 1: Memória e Compactação ──
+    MemoryStore,
+    InMemoryStore,
+    WorkingMemory,
+    ContextCompactor,
+    EpisodicMemory,
+    SemanticMemory,
+    // ── Fase 2: SubAgent ──
+    SubAgent,
+    // ── Fase 3: Orquestração ──
+    Orchestrator,
+    TaskGraph,
+    ParallelExecutor,
+    // ── Fase 4: Plataforma multi-tenant ──
+    PlatformManager,
+    // ── Fase 5: Persistência ──
+    SessionStore,
+    InMemorySessionStore,
 };

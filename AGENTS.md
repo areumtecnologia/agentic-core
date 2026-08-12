@@ -1,0 +1,4 @@
+- Nunca forneça respostas vazias, nulas ou códigos incompletos.
+- Se não souber a resposta, diga explicitamente "Não tenho informações suficientes" e liste o que falta.
+- Evite placeholders como "// adicione sua lógica aqui". Escreva a implementação completa ou um exemplo funcional correlato.
+- Sempre valide se a resposta contém conteúdo útil e acionável antes de exibi-la.

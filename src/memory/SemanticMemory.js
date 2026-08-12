@@ -30,7 +30,10 @@ class SemanticMemory extends EventEmitter {
      */
     constructor(store) {
         super();
-        if (!store) throw new TypeError('[SemanticMemory] store (MemoryStore) is required.');
+        if (!store) throw new TypeError(`[${this.constructor.name}] store (MemoryStore) is required.`);
+        if (typeof store.save !== 'function' || typeof store.findBySession !== 'function') {
+            throw new TypeError(`[${this.constructor.name}] store must implement save() and findBySession() methods.`);
+        }
         this.#store = store;
     }
 
@@ -46,6 +49,22 @@ class SemanticMemory extends EventEmitter {
      * @returns {Promise<SemanticFact>}
      */
     async learn({ sessionId, subject, predicate, object, confidence = 1.0, tags = [] }) {
+        if (!sessionId) {
+            throw new TypeError(`[${this.constructor.name}] sessionId is required.`);
+        }
+        if (!subject) {
+            throw new TypeError(`[${this.constructor.name}] subject is required.`);
+        }
+        if (!predicate) {
+            throw new TypeError(`[${this.constructor.name}] predicate is required.`);
+        }
+        if (object === undefined || object === null) {
+            throw new TypeError(`[${this.constructor.name}] object is required.`);
+        }
+        if (confidence < 0 || confidence > 1) {
+            throw new TypeError(`[${this.constructor.name}] confidence must be between 0 and 1.`);
+        }
+        
         // Busca fato existente com mesmo subject+predicate para atualizar
         const existing = await this.#findExisting(sessionId, subject, predicate);
 

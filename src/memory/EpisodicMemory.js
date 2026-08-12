@@ -28,7 +28,10 @@ class EpisodicMemory extends EventEmitter {
      */
     constructor(store) {
         super();
-        if (!store) throw new TypeError('[EpisodicMemory] store (MemoryStore) is required.');
+        if (!store) throw new TypeError(`[${this.constructor.name}] store (MemoryStore) is required.`);
+        if (typeof store.save !== 'function' || typeof store.findBySession !== 'function') {
+            throw new TypeError(`[${this.constructor.name}] store must implement save() and findBySession() methods.`);
+        }
         this.#store = store;
     }
 
@@ -43,6 +46,16 @@ class EpisodicMemory extends EventEmitter {
      * @returns {Promise<Episode>}
      */
     async remember({ sessionId, turn, summary, importance = 0.5, tags = [] }) {
+        if (!sessionId) {
+            throw new TypeError(`[${this.constructor.name}] sessionId is required.`);
+        }
+        if (!turn) {
+            throw new TypeError(`[${this.constructor.name}] turn is required.`);
+        }
+        if (importance < 0 || importance > 1) {
+            throw new TypeError(`[${this.constructor.name}] importance must be between 0 and 1.`);
+        }
+        
         const record = {
             id: uuid(),
             sessionId,

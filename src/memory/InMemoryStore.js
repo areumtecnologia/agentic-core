@@ -15,6 +15,19 @@ class InMemoryStore extends MemoryStore {
     #sessionIndex = new Map();
 
     async save(record) {
+        if (!record || typeof record !== 'object') {
+            throw new TypeError(`[${this.constructor.name}] record must be an object.`);
+        }
+        if (!record.sessionId) {
+            throw new TypeError(`[${this.constructor.name}] record.sessionId is required.`);
+        }
+        if (!record.type) {
+            throw new TypeError(`[${this.constructor.name}] record.type is required.`);
+        }
+        if (!record.content) {
+            throw new TypeError(`[${this.constructor.name}] record.content is required.`);
+        }
+        
         if (!record.id) record.id = uuid();
         if (!record.createdAt) record.createdAt = new Date();
         this.#records.set(record.id, record);

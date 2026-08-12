@@ -28,19 +28,24 @@ async function example() {
   const customerAgent = new AgenticCore({
     // apiKey: GOOGLE_GEMINI_API_KEY,
     // model: 'gemma-4-31b-it', // 'gemma-4-26b-a4b-it',
-    provider: new NvidiaProvider({
+    provider: new OllamaProvider({
       apiKey: NVIDIA_API_KEY,
-      model: "nvidia/nemotron-3-ultra-550b-a55b",
+      model: "LiquidAI/lfm2.5-1.2b-instruct:latest",
     }),
     agent: new AgentConfig(
       'Monnalisa',
       'Áreum Tecnologia',
       'Somos uma empresa de tecnologia especializada em soluções de Inteligência Artificial e Automação de Processos. Estamos localizados em Belém, Pará, Brasil.',
-      'assistente útil',
-      'Conduzir uma conversa rápida, empática e fragmentada (estilo chat humano) em busca de atender o usuário.',
+      'Assistente',
+      'Fornecer respostas precisas e relevantes para as solicitações do usuário.',
       `Atenda o usuario da melhor forma possível, utilizando as tools disponíveis para obter dados atualizados.`,
       'pt-BR'
-    )
+    ),
+    temperature: 0.4,
+    topP: 0.9,
+    maxOutputTokens: 512,
+    maxAgenticLoopTurns: 5,
+    turnTimeoutMs: 60000
   });
 
   // ── Eventos ───────────────────────────────────────────────────────────────
@@ -88,18 +93,35 @@ async function example() {
     return 'Eu sou um assistente virtual chamado Monnalisa, criado pela Áreum Tecnologia para auxiliar clientes com suas solicitações.'
   });
 
+  customerAgent.registerTool({
+    name: 'calc',
+    description: 'Executa calculos e retorna o resultado.',
+    parameters: { 
+      type: Type.OBJECT, 
+      properties: {
+        expression: {
+          type: Type.STRING,
+          description: 'Expressão matemática a ser calculada (ex: 2 + 2 * 3)'
+        }
+      } },
+  }, async (expression) => {
+    try {
+      const result = eval(expression);
+      return result;
+    } catch (error) {
+      console.error(`Erro ao calcular expressão: ${expression}`);
+      throw new Error('Erro ao calcular expressão');
+    }
+  });
 
   const sid = Date.now();
   const session = customerAgent.createSession(sid.toString(), {
-    name: 'Renan',
-    phone: '5591981648646',
-    sessionId: sid,
-    origin: { id: '12345', type: 'whatsapp', description: 'Lead via WhatsApp.' }
+    name: 'Renan'
   });
 
   customerAgent.registerTool({
     name: 'end_chat',
-    description: 'Retorna informações sobre você.',
+    description: 'Finaliza a sessão de chat.',
     parameters: {
       type: Type.OBJECT,
       properties: {
@@ -118,31 +140,40 @@ async function example() {
     return { success: result };
   });
 
-  const caminhoOgg = process.env.AUDIO_OGG_PATH; // Arquivo OGG de entrada (ex: áudio do WhatsApp)
+  // const caminhoOgg = process.env.AUDIO_OGG_PATH; // Arquivo OGG de entrada (ex: áudio do WhatsApp)
 
-  if (!fs.existsSync(caminhoOgg)) {
-    throw new Error(`Arquivo não encontrado no caminho: ${caminhoOgg}`);
-  }
+  // if (!fs.existsSync(caminhoOgg)) {
+  //   throw new Error(`Arquivo não encontrado no caminho: ${caminhoOgg}`);
+  // }
 
-  console.log('🔄 Convertendo áudio OGG para formato WAV...');
-  // Realiza a conversão em memória e retorna os bytes brutos
-  const wavBuffer = await converterOggParaWavBuffer(caminhoOgg);
+  // console.log('🔄 Convertendo áudio OGG para formato WAV...');
+  // // Realiza a conversão em memória e retorna os bytes brutos
+  // const wavBuffer = await converterOggParaWavBuffer(caminhoOgg);
 
-  // Transforma o buffer final de WAV diretamente em Base64
-  const audioBase64 = wavBuffer.toString('base64');
-  console.log('✅ Conversão concluída com sucesso.');
+  // // Transforma o buffer final de WAV diretamente em Base64
+  // const audioBase64 = wavBuffer.toString('base64');
+  // console.log('✅ Conversão concluída com sucesso.');
 
   const questions = [{
     text: "Olá, quem é você?",
   }, {
     text: "Que horas são?",
   }, {
-    text: "O que é isso?",
-    attachments: { base64: IMAGE_BASE64, mimeType: 'image/png' }
+    text: "Qual é a capital do Brasil?",
   }, {
-    text: "Transcreva este áudio:",
-    attachments: { base64: audioBase64, mimeType: 'audio/wav' }
-  }];
+    text: "Explique o que é IA em uma frase.",
+  }, {
+    text: "Qual o resultado da expressão matemática 2 + 2 * 3?",
+  }
+
+  // {
+  //   text: "O que é isso?",
+  //   attachments: { base64: IMAGE_BASE64, mimeType: 'image/png' }
+  // }, {
+  //   text: "Transcreva este áudio:",
+  //   attachments: { base64: audioBase64, mimeType: 'audio/wav' }
+  // }
+];
   // Marcar a hora de inicio do turno e quanto tempo ele durou
   const startTime = Date.now();
   for (const question of questions) {

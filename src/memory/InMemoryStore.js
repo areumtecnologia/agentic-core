@@ -10,8 +10,8 @@ const { v4: uuid } = require('uuid');
 
 class InMemoryStore extends MemoryStore {
     /** @type {Map<string, MemoryRecord>} */
-    #records = new Map();
-    /** index secundário: sessionId → Set<recordId> */
+    #records = new Map();    /** @type {Map<string, Date>} Tiempos de expiração por registro */
+    #expirationTimes = new Map();    /** index secundário: sessionId → Set<recordId> */
     #sessionIndex = new Map();
 
     async save(record) {
@@ -98,6 +98,38 @@ class InMemoryStore extends MemoryStore {
     clear() {
         this.#records.clear();
         this.#sessionIndex.clear();
+        this.#expirationTimes.clear();
+    }
+
+    /**
+     * Define um tempo de expiração para um registro.
+     * @param {string} id
+     * @param {Date} expiresAt
+     * @returns {Promise<boolean>}
+     */
+    async setExpiration(id, expiresAt) {
+        if (!id) {
+            throw new TypeError(`[${this.constructor.name}] id is required.`);
+        }
+        if (!(expiresAt instanceof Date)) {
+            throw new TypeError(`[${this.constructor.name}] expiresAt must be a Date.`);
+        }
+        this.#expirationTimes.set(id, expiresAt);
+        return true;
+    }
+
+    /**
+     * Verifica se um registro expirou.
+     * @param {string} id
+     * @returns {Promise<boolean>}
+     */
+    async isExpired(id) {
+        if (!id) {
+            throw new TypeError(`[${this.constructor.name}] id is required.`);
+        }
+        const expiresAt = this.#expirationTimes.get(id);
+        if (!expiresAt) return false;
+        return new Date() > expiresAt;
     }
 }
 

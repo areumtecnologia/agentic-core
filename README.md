@@ -1,6 +1,6 @@
 # Agentic Core
 
-> **v3.1.0** — Framework profissional para orquestração de Agentes Autônomos em Node.js com suporte a múltiplos provedores redundantes (Google Gemini, OpenAI, Claude, Ollama, Nvidia), suporte nativo ao protocolo MCP (Model Context Protocol) como Cliente e Servidor, failover automático em caso de falhas 5xx, suporte a mídias (imagens, áudio, vídeo), gerenciamento concorrente transparente (debounce + abort), sessões integradas, **memória hierárquica com compactação de contexto**, **SubAgentes com delegação**, **orquestração paralela de tarefas (DAG)**, **plataforma multi-tenant** e **persistência de sessões**.
+> **v3.2.0** — Framework profissional para orquestração de Agentes Autônomos em Node.js com suporte a múltiplos provedores redundantes (Google Gemini, OpenAI, Claude, Ollama, Nvidia), suporte nativo ao protocolo MCP (Model Context Protocol) como Cliente e Servidor, failover automático em caso de falhas 5xx, suporte a mídias (imagens, áudio, vídeo), gerenciamento concorrente transparente (debounce + abort), sessões integradas, **memória hierárquica com compactação de contexto**, **SubAgentes com delegação**, **orquestração paralela de tarefas (DAG)**, **plataforma multi-tenant**, **persistência de sessões** e **sistema de ferramentas embutidas com validação, composição e marketplace**.
 
 ---
 
@@ -25,6 +25,7 @@
 | **Timeouts Granulares** | AbortController por turno (padrão 90s) e por ferramenta (70% do turno). |
 | **Detecção de Vulnerabilidades** | Rastreamento via ferramenta interna de segurança e encerramento automático de sessões suspeitas. |
 | **Eventos Estruturados** | `EventEmitter` completo para monitoramento (`SESSION_CREATED`, `SESSION_UPDATED`, `PROVIDER_FALLBACK`, `RESPONSE`, etc.). |
+| **Sistema de Ferramentas** | **15+ ferramentas embutidas** organizadas em categorias (web, file, database, system, communication) com validação de schema, composição, chaining e marketplace. |
 
 ---
 
@@ -166,9 +167,9 @@ const agent = new AgenticCore({
 O Agentic Core possui uma camada de memória dividida em 4 níveis:
 
 1. **`WorkingMemory`**: Mantém a janela deslizante de $N$ turns recentes enviados ao LLM.
-2. **`ContextCompactor`**: Compacta automaticamente turns antigos em resumos estruturados via LLM.
-3. **`EpisodicMemory`**: Armazena episódios significativos da conversa para recuperação de contexto.
-4. **`SemanticMemory`**: Armazena fatos, preferências e conhecimento factual (`subject`, `predicate`, `object`).
+2. **`ContextCompactor`**: Compacta automaticamente turns antigos em resumos estruturados via LLM. Suporta filtragem por importância (`importanceThreshold`) para manter apenas as turns mais críticas.
+3. **`EpisodicMemory`**: Armazena episódios significativos da conversa para recuperação de contexto. Suporta **compartilhamento de sessões** (`shareSession`) e **esvaziamento de sessões** (`forgetSession`).
+4. **`SemanticMemory`**: Armazena fatos, preferências e conhecimento factual (`subject`, `predicate`, `object`). Suporta **busca por predicate**, **filtro por confiança** (`recallByConfidence`) e **recuperação global**.
 
 ```javascript
 const { AgenticCore, InMemoryStore } = require('@areumtecnologia/agentic-core');
@@ -185,6 +186,18 @@ const agent = new AgenticCore({
     language: 'pt-BR'
   }
 });
+
+// EpisodicMemory - compartilhar episódios entre sessões
+await episodicMemory.shareSession('session_1', 'session_2', { limit: 100 });
+
+// EpisodicMemory - esquecer sessão
+await episodicMemory.forgetSession('session_1');
+
+// SemanticMemory - buscar por predicate
+await semanticMemory.recallByPredicate('prefers', { subject: 'user' });
+
+// SemanticMemory - filtrar por confiança
+await semanticMemory.recallByConfidence(0.85, { limit: 10 });
 ```
 
 ---
@@ -324,6 +337,18 @@ agentic-core/
 │   ├── SubAgent.js                       # Agente especializado efêmero
 │   ├── types.js                          # Tipos neutros (Type, ThinkingLevel)
 │   ├── utils.js                          # withRetry com backoff e jitter
+│   ├── tools/                            # Sistema de ferramentas embutidas
+│   │   ├── index.js                      # Exportações do sistema de ferramentas
+│   │   ├── ToolRegistry.js               # Registro e descoberta de ferramentas
+│   │   ├── ToolComposer.js               # Composição e chaining de ferramentas
+│   │   ├── ToolValidator.js              # Validação de schema e segurança
+│   │   ├── ToolMarketplace.js            # Marketplace e descoberta
+│   │   └── categories/                   # Categorias de ferramentas
+│   │       ├── web.js                    # Ferramentas web (search, fetch, validate)
+│   │       ├── file.js                   # Ferramentas de arquivo
+│   │       ├── database.js               # Ferramentas de banco de dados
+│   │       ├── system.js                 # Ferramentas de sistema
+│   │       └── communication.js          # Ferramentas de comunicação
 │   ├── mcp/                              # Protocolo MCP (Client, Server, Manager)
 │   ├── memory/                           # Memória (Working, Compactor, Episodic, Semantic)
 │   ├── orchestrator/                     # Orquestração (TaskGraph, ParallelExecutor, Orchestrator)
@@ -343,6 +368,52 @@ agentic-core/
 
 ---
 
+## 🛠️ Sistema de Ferramentas Embutidas
+
+O Agentic Core inclui um sistema completo de ferramentas embutidas com **15+ ferramentas** organizadas em 5 categorias:
+
+### Categorias de Ferramentas
+
+| Categoria | Ferramentas | Descrição |
+|-----------|-------------|-----------|
+| **Web** | `web_search`, `http_fetch`, `validate_url` | Busca web, requisições HTTP e validação de URLs |
+| **File** | `read_file`, `write_file`, `list_directory`, `file_exists` | Operações de arquivo e diretório |
+| **Database** | `sql_query`, `db_schema`, `db_health` | Consultas SQL e gerenciamento de banco |
+| **System** | `system_info`, `execute_command`, `get_env`, `current_datetime` | Informações do sistema e execução de comandos |
+| **Communication** | `send_email`, `send_sms`, `send_notification`, `trigger_webhook` | Comunicação e notificações |
+
+### Recursos do Sistema de Ferramentas
+
+- **Validação de Schema**: Validação automática de argumentos com JSON Schema
+- **Composição**: Chain de ferramentas com transformação de dados
+- **Execução Paralela**: Execução simultânea de múltiplas ferramentas
+- **Marketplace**: Descoberta, rating e reviews de ferramentas
+- **Segurança**: Validação de segurança e sanitização de inputs
+
+### Exemplo de Uso
+
+```javascript
+const { registry, composer } = require('@areumtecnologia/agentic-core');
+
+// Usar ferramenta diretamente
+const result = await registry.executeTool('web_search', {
+  query: 'artificial intelligence'
+});
+
+// Compor ferramentas
+const workflow = composer.compose('research', [
+  { name: 'web_search', transform: args => ({ query: args.topic }) },
+  { name: 'write_file', transform: (results) => ({
+    filePath: 'research.md',
+    content: JSON.stringify(results, null, 2)
+  })}
+]);
+
+await workflow.execute({ topic: 'AI trends' });
+```
+
+---
+
 ## 🧪 Testes
 
 ```bash
@@ -353,6 +424,9 @@ npm test
 node tests/test_bugs_fix.js
 node tests/test_no_mutation.js
 node tests/test_retry_classification.js
+
+# Testar sistema de ferramentas
+node src/tools/examples/complete_example.js
 ```
 
 ---

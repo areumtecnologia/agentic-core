@@ -37,6 +37,7 @@ build/
 # Testing
 coverage/
 .nyc_output/
+tests/
 
 # Misc
 .env.test

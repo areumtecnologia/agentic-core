@@ -15,6 +15,7 @@ const EventEmitter = require('events');
  * @property {number} [maxTurns=20]        Limite de turns antes de disparar compactação
  * @property {number} [keepRecent=10]      Turns mantidos após compactação
  * @property {number} [minTurnsToCompact=5] Mínimo de turns elegíveis para compactar
+ * @property {number} [importanceThreshold=0.3] Score mínimo para um turn ser considerado importante
  */
 
 class WorkingMemory extends EventEmitter {
@@ -26,6 +27,10 @@ class WorkingMemory extends EventEmitter {
     #lastCompactionAt = null;
     /** @type {string[]} IDs de memórias episódicas recuperadas e injetadas */
     #retrievedRefs = [];
+    /** @type {number[]} Scores de importância para cada turn (0-1) */
+    #importanceScores = [];
+    /** @type {number} Score mínimo para um turn ser considerado importante */
+    #importanceThreshold;
 
     #maxTurns;
     #keepRecent;
@@ -38,19 +43,29 @@ class WorkingMemory extends EventEmitter {
         maxTurns = 20,
         keepRecent = 10,
         minTurnsToCompact = 5,
+        importanceThreshold = 0.3,
     } = {}) {
         super();
         if (keepRecent >= maxTurns) {
             throw new RangeError('[WorkingMemory] keepRecent must be less than maxTurns.');
         }
+        if (importanceThreshold < 0 || importanceThreshold > 1) {
+            throw new RangeError('[WorkingMemory] importanceThreshold must be between 0 and 1.');
+        }
         this.#maxTurns = maxTurns;
         this.#keepRecent = keepRecent;
         this.#minTurnsToCompact = minTurnsToCompact;
+        this.#importanceThreshold = importanceThreshold;
+        // Initialize importance scores for existing turns (will be filled as turns are added)
+        this.#importanceScores = [];
     }
 
     /** Adiciona um ou mais turns à memória de trabalho. */
     append(...turns) {
+        // Initialize importance scores for new turns (default: medium importance 0.5)
+        const newScores = turns.map(() => 0.5);
         this.#turns.push(...turns);
+        this.#importanceScores.push(...newScores);
         this.emit('appended', { count: turns.length, total: this.#turns.length });
     }
 
@@ -79,23 +94,56 @@ class WorkingMemory extends EventEmitter {
     }
 
     /**
-     * Seleciona os turns elegíveis para compactação (os mais antigos).
+     * Seleciona os turns elegíveis para compactação, priorizando os de menor importância.
+     * Turns com score de importância abaixo do threshold são preferidos para compactação.
      * @returns {object[]} Turns a serem compactados
      */
     getCompactableTurns() {
         const count = this.#turns.length - this.#keepRecent;
         if (count < this.#minTurnsToCompact) return [];
-        return this.#turns.slice(0, count);
+        
+        // Cria pares [turn, importanceScore] e ordena pelo score (menor primeiro)
+        const scoredTurns = this.#turns.map((turn, i) => ({
+            turn,
+            score: this.#importanceScores[i] ?? 0.5,
+        }));
+        scoredTurns.sort((a, b) => a.score - b.score);
+        
+        // Retorna as turns com menor importância (até o count necessário)
+        const compactable = scoredTurns
+            .slice(0, count)
+            .map(item => item.turn);
+        return compactable;
     }
 
     /**
      * Substitui os turns antigos por um resumo consolidado.
-     * Mantém apenas os #keepRecent turns mais recentes.
+     * Mantém apenas os #keepRecent turns mais recentes, priorizando os de maior importância.
      * @param {string} newSummary  Resumo consolidado (existente + novos)
      */
     applyCompaction(newSummary) {
-        const compacted = this.#turns.slice(0, this.#turns.length - this.#keepRecent);
-        this.#turns = this.#turns.slice(-this.#keepRecent);
+        // Seleciona quais turns manter (os de maior importância entre os #keepRecent mais recentes)
+        const recentTurns = this.#turns.slice(-this.#keepRecent);
+        const recentScores = this.#importanceScores.slice(-this.#keepRecent);
+        
+        // Ordena as turns recentes por importância (menor para maior)
+        const indexedTurns = recentTurns.map((turn, i) => ({
+            turn,
+            score: recentScores[i] ?? 0.5,
+        }));
+        indexedTurns.sort((a, b) => b.score - a.score);
+        
+        // Mantém apenas as turns mais importantes (apenas #keepRecent dos mais importantes)
+        // Se há mais turns do que o limite, mantém apenas as #keepRecent mais importantes
+        const importantTurns = indexedTurns
+            .slice(0, this.#keepRecent)
+            .map(item => item.turn);
+        
+        const compacted = this.#turns.filter(
+            turn => !importantTurns.includes(turn)
+        );
+        
+        this.#turns = importantTurns;
         this.#compactedSummary = newSummary;
         this.#lastCompactionAt = new Date();
         this.emit('compacted', {
@@ -112,6 +160,36 @@ class WorkingMemory extends EventEmitter {
      */
     setCompactedSummary(summary) {
         this.#compactedSummary = summary;
+    }
+
+    /** Define a importância de um turn específico (0-1). */
+    setImportance(turn, importance) {
+        if (importance < 0 || importance > 1) {
+            throw new RangeError('[WorkingMemory] importance must be between 0 and 1.');
+        }
+        const index = this.#turns.indexOf(turn);
+        if (index === -1) {
+            throw new Error(`[WorkingMemory] turn not found in memory.`);
+        }
+        this.#importanceScores[index] = importance;
+        this.emit('importance-updated', { turn, importance });
+    }
+
+    /** Obtém o score de importância de um turn. */
+    getImportance(turn) {
+        const index = this.#turns.indexOf(turn);
+        if (index === -1) {
+            return null;
+        }
+        return this.#importanceScores[index];
+    }
+
+    /** Obtém os scores de importância de todos os turns. */
+    getAllImportanceScores() {
+        return this.#importanceScores.map((score, i) => ({
+            turn: this.#turns[i],
+            score,
+        }));
     }
 
     /** Adiciona referência a memória episódica recuperada. */

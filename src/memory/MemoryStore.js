@@ -75,6 +75,33 @@ class MemoryStore {
     async searchSimilar(queryEmbedding, filter = {}) {
         return [];
     }
+
+    /**
+     * Define um tempo de expiração para um registro.
+     * @param {string} id
+     * @param {Date} expiresAt
+     * @returns {Promise<boolean>}
+     */
+    async setExpiration(id, expiresAt) {
+        throw new Error(`[${this.constructor.name}] Method setExpiration() must be implemented.`);
+    }
+
+    /**
+     * Verifica se um registro expirou.
+     * @param {string} id
+     * @returns {Promise<boolean>}
+     */
+    async isExpired(id) {
+        throw new Error(`[${this.constructor.name}] Method isExpired() must be implemented.`);
+    }
+
+    /**
+     * Lista todos os tipos de memória disponíveis.
+     * @returns {Promise<string[]>}
+     */
+    async listTypes() {
+        return [];
+    }
 }
 
 module.exports = { MemoryStore };

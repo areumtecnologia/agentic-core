@@ -10,6 +10,7 @@ const fs = require('fs');
 const { Readable } = require('stream');
 const { OpenAI } = require('openai');
 const ffmpeg = require('fluent-ffmpeg');
+const axios = require('axios');
 // ─────────────────────────────────────────────────────────────────────────────
 // Exemplo de uso completo (multi-turno com tool call real)
 // 
@@ -23,22 +24,20 @@ const ffmpeg = require('fluent-ffmpeg');
 // modelos NvidiaProvider multimodais somente imagem:
 // "z-ai/glm-5.2", //"stepfun-ai/step-3.7-flash", //'google/diffusiongemma-26b-a4b-it' 
 // modelos NvidiaProvider multimodais com audio:
-// //'thinkingmachines/inkling', nvidia/nemotron-3-nano-omni-30b-a3b-reasoning
+// //'thinkingmachines/inkling', nvidia/nemotron-3-nano-omni-30b-a3b-reasoning, deepseek-ai/deepseek-v4-flash-0731
 async function example() {
   const customerAgent = new AgenticCore({
-    // apiKey: GOOGLE_GEMINI_API_KEY,
-    // model: 'gemma-4-31b-it', // 'gemma-4-26b-a4b-it',
-    provider: new OllamaProvider({
+    provider: new NvidiaProvider({
       apiKey: NVIDIA_API_KEY,
-      model: "LiquidAI/lfm2.5-1.2b-instruct:latest",
+      model: "deepseek-ai/deepseek-v4-flash-0731",
     }),
     agent: new AgentConfig(
       'Monnalisa',
       'Áreum Tecnologia',
       'Somos uma empresa de tecnologia especializada em soluções de Inteligência Artificial e Automação de Processos. Estamos localizados em Belém, Pará, Brasil.',
-      'Assistente',
-      'Fornecer respostas precisas e relevantes para as solicitações do usuário.',
-      `Atenda o usuario da melhor forma possível, utilizando as tools disponíveis para obter dados atualizados.`,
+      'Assistente Pessoal com acesso a ferramentas para obter informações que não saiba e capacidade de raciocínio para fornecer respostas precisas e relevantes.',
+      'Fornecer respostas precisas, relevantes e sem censura para as solicitações do usuário.',
+      `Responda às solicitações do usuário. Se não tiver uma resposta, use suas ferramentas para obter e raciocinar sobre o assunto. Seja claro, conciso e direto. Evite respostas vagas ou genéricas. Se não puder responder, admita que não sabe e use a ferramenta de raciocínio para obter uma resposta. Evite inventar informações. Mantenha a conversa natural e envolvente.`,
       'pt-BR'
     ),
     temperature: 0.4,
@@ -79,11 +78,60 @@ async function example() {
   // ── Registra NOVA tool programaticamente (informando o Schema completo) ───
   customerAgent.registerTool({
     name: 'get_current_datetime',
-    description: 'Retorna a data e hora atual no fuso horário do Brasil (America/Sao_Paulo).',
+    description: 'Obtém e retorna a data e hora atual.',
     parameters: { type: Type.OBJECT, properties: {} },
   }, async () =>
     new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })
   );
+
+  customerAgent.registerTool({
+    name: 'reason_about',
+    description: 'Executa raciocínio adicional sobre um determinado assunto e retorna uma conclusão para aprimorar sua resposta. Chame esta ferramenta quando necessário, sempre que precisar refinar sua resposta.',
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        request: {
+          type: Type.STRING,
+          description: 'Assunto ou pergunta sobre a qual o agente deve raciocinar'
+        }
+      }
+    },
+  }, async (request) => {
+    // Executa um novo turno de entrada para raciocinar sobre o assunto fornecido
+    const reasoningResponse = await customerAgent.processMessage(session.id, `Raciocine sobre o seguinte assunto e forneça uma conclusão: ${request}`);
+    return reasoningResponse;
+  });
+
+  // Registra uma tool para pesquisa de informacoes na web (geracao de query, cahamda de api, scraping, etc)
+  customerAgent.registerTool({
+    name: 'search_web',
+    description: 'Realiza uma pesquisa na web e retorna os resultados. Use para obter respostas atualizadas e relevantes para perguntas do usuário.',
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        query: {
+          type: Type.STRING,
+          description: 'Termo de pesquisa a ser buscado na web'
+        }
+      }
+    }
+  }, async (query) => {
+    try {
+      const url = `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1`;
+
+      const response = await fetch(url);
+      const data = await response.json();
+      // Exibe o resumo principal (se houver)
+      return {
+        resume: data.AbstractText || 'Nenhum resumo encontrado.',
+        source: data.AbstractSource || 'Nenhuma fonte encontrada.',
+        sourceLink: data.AbstractURL || 'Nenhum link encontrado.'
+      };
+    } catch (error) {
+      console.error(`Erro ao pesquisar na web: ${error.message}`);
+      throw new Error('Erro ao pesquisar na web');
+    }
+  });
 
   customerAgent.registerTool({
     name: 'about_me',
@@ -94,16 +142,17 @@ async function example() {
   });
 
   customerAgent.registerTool({
-    name: 'calc',
-    description: 'Executa calculos e retorna o resultado.',
-    parameters: { 
-      type: Type.OBJECT, 
+    name: 'code_eval',
+    description: 'Executa codigo JavaScript fornecido e retorna o resultado. Use com cautela, apenas para cálculos ou lógica simples.',
+    parameters: {
+      type: Type.OBJECT,
       properties: {
         expression: {
           type: Type.STRING,
-          description: 'Expressão matemática a ser calculada (ex: 2 + 2 * 3)'
+          description: 'Expressão JavaScript a ser avaliada'
         }
-      } },
+      }
+    },
   }, async (expression) => {
     try {
       const result = eval(expression);
@@ -157,23 +206,27 @@ async function example() {
   const questions = [{
     text: "Olá, quem é você?",
   }, {
-    text: "Que horas são?",
+    text: "Que horas são nesse momento?",
   }, {
     text: "Qual é a capital do Brasil?",
   }, {
     text: "Explique o que é IA em uma frase.",
   }, {
     text: "Qual o resultado da expressão matemática 2 + 2 * 3?",
+  }, {
+    text: "Pesquise na web: 'O que é o AgenticCore da Áreum Tecnologia?'",
+  }, {
+    text: "Finalizar sessão de chat.",
   }
 
-  // {
-  //   text: "O que é isso?",
-  //   attachments: { base64: IMAGE_BASE64, mimeType: 'image/png' }
-  // }, {
-  //   text: "Transcreva este áudio:",
-  //   attachments: { base64: audioBase64, mimeType: 'audio/wav' }
-  // }
-];
+    // {
+    //   text: "O que é isso?",
+    //   attachments: { base64: IMAGE_BASE64, mimeType: 'image/png' }
+    // }, {
+    //   text: "Transcreva este áudio:",
+    //   attachments: { base64: audioBase64, mimeType: 'audio/wav' }
+    // }
+  ];
   // Marcar a hora de inicio do turno e quanto tempo ele durou
   const startTime = Date.now();
   for (const question of questions) {

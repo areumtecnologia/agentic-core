@@ -31,11 +31,35 @@ const {
     AnthropicProvider,
     NvidiaProvider,
 } = require('./providers');
-const { MemoryStore, InMemoryStore, WorkingMemory, ContextCompactor, EpisodicMemory, SemanticMemory } = require('./memory');
+const {
+    MemoryStore,
+    InMemoryStore,
+    WorkingMemory,
+    ContextCompactor,
+    OptimizedContextCompactor,
+    EpisodicMemory,
+    SemanticMemory,
+    SemanticMemoryEnhanced,
+    SemanticSearch,
+    SharedMemory
+} = require('./memory');
 const { SubAgent } = require('./SubAgent');
 const { Orchestrator, TaskGraph, ParallelExecutor } = require('./orchestrator');
 const { PlatformManager } = require('./platform');
 const { SessionStore, InMemorySessionStore } = require('./persistence');
+const {
+    registry,
+    composer,
+    ToolRegistry,
+    ToolComposer,
+    ToolValidator,
+    ToolMarketplace,
+    WebTools,
+    FileTools,
+    DatabaseTools,
+    SystemTools,
+    CommunicationTools,
+} = require('./tools');
 
 module.exports = {
     AgenticCore,
@@ -57,22 +81,38 @@ module.exports = {
     McpManager,
     McpClient,
     McpServer,
-    // ── Fase 1: Memória e Compactação ──
+    // ── Memória e Compactação ──
     MemoryStore,
     InMemoryStore,
     WorkingMemory,
     ContextCompactor,
+    OptimizedContextCompactor,
     EpisodicMemory,
     SemanticMemory,
-    // ── Fase 2: SubAgent ──
+    SemanticMemoryEnhanced,
+    SemanticSearch,
+    SharedMemory,
+    // ── SubAgent ──
     SubAgent,
-    // ── Fase 3: Orquestração ──
+    // ── Orquestração ──
     Orchestrator,
     TaskGraph,
     ParallelExecutor,
-    // ── Fase 4: Plataforma multi-tenant ──
+    // ── Plataforma multi-tenant ──
     PlatformManager,
-    // ── Fase 5: Persistência ──
+    // ── Persistência ──
     SessionStore,
     InMemorySessionStore,
+    // ── Sistema de Ferramentas Embutidas ──
+    registry,
+    composer,
+    ToolRegistry,
+    ToolComposer,
+    ToolValidator,
+    ToolMarketplace,
+    WebTools,
+    FileTools,
+    DatabaseTools,
+    SystemTools,
+    CommunicationTools,
 };

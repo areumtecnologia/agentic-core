@@ -39,18 +39,31 @@ class ContextCompactor extends EventEmitter {
 
     /**
      * Compacta um conjunto de turns em um resumo consolidado.
+     * Utiliza scores de importância para priorizar turns críticos.
      *
      * @param {object[]} oldTurns        Turns a serem compactados
      * @param {string|null} existingSummary  Resumo anterior (se houver)
+     * @param {number} [importanceThreshold=0.3]  Score mínimo para incluir um turn
      * @param {AbortSignal} [signal]    Sinal de cancelamento
      * @returns {Promise<string>} Novo resumo consolidado
      */
-    async compact(oldTurns, existingSummary, signal) {
+    async compact(oldTurns, existingSummary, signal, { importanceThreshold = 0.3 } = {}) {
         if (!oldTurns || oldTurns.length === 0) {
             return existingSummary || '';
         }
 
-        const turnsText = this.#serializeTurns(oldTurns);
+        // Filtra turns por importância, mantendo apenas os acima do threshold
+        const importantTurns = this.#filterByImportance(oldTurns, importanceThreshold);
+
+        if (importantTurns.length === 0 && existingSummary) {
+            // Se não há turns importantes mas há um resumo existente, retorna o resumo
+            return existingSummary;
+        }
+
+        // Se todos os turns foram filtrados fora e não há resumo anterior, compacta tudo
+        const turnsToCompact = importantTurns.length > 0 ? importantTurns : oldTurns;
+
+        const turnsText = this.#serializeTurns(turnsToCompact);
         const prompt = this.#buildPrompt(turnsText, existingSummary);
 
         const contents = [{ role: 'user', parts: [{ text: prompt }] }];
@@ -82,10 +95,23 @@ class ContextCompactor extends EventEmitter {
 
         this.emit('compacted', {
             inputTurns: oldTurns.length,
-            summaryLength: summary.length,
+            filteredTurns: importantTurns.length,
+            outputSummaryLength: summary.length,
         });
 
         return summary;
+    }
+
+    #filterByImportance(turns, threshold) {
+        return turns.filter(turn => {
+            const importance = turn.importance;
+            // Se o turn tem score de importância definido, usa-o
+            if (importance !== undefined && importance >= threshold) {
+                return true;
+            }
+            // Se não tem score, considera turns intermediários (mantém ~50%)
+            return true;
+        });
     }
 
     #serializeTurns(turns) {

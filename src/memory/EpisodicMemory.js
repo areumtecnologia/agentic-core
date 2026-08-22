@@ -114,6 +114,81 @@ class EpisodicMemory extends EventEmitter {
         if (count > 0) this.emit('session_forgotten', { sessionId, count });
         return count;
     }
+
+    /**
+     * Compartilha episódios entre sessões.
+     * Copia episódios de uma sessão de origem para uma sessão de destino.
+     * @param {string} fromSessionId  Sessão de origem
+     * @param {string} toSessionId    Sessão de destino
+     * @param {object} [filter] { tags?, limit? }
+     * @returns {Promise<number>} Quantidade de episódios compartilhados
+     */
+    async shareSession(fromSessionId, toSessionId, { tags, limit = 100 } = {}) {
+        const episodes = await this.#store.findBySession(fromSessionId, {
+            type: 'episodic',
+            tags,
+            limit,
+        });
+        
+        let sharedCount = 0;
+        for (const episode of episodes) {
+            // Cria uma cópia do episódio na sessão de destino com novo sessionId
+            const sharedEpisode = {
+                ...episode,
+                sessionId: toSessionId,
+                // Remove o ID original para evitar conflitos, gerará novo ID ao salvar
+                id: undefined,
+            };
+            await this.#store.save(sharedEpisode);
+            sharedCount++;
+        }
+        
+        if (sharedCount > 0) {
+            this.emit('shared', { fromSessionId, toSessionId, count: sharedCount });
+        }
+        return sharedCount;
+    }
+
+    /**
+     * Importa episódios de outro EpisodicMemory instance.
+     * Útil para migrar memória entre diferentes instâncias.
+     * @param {import('./EpisodicMemory').EpisodicMemory} sourceMemory  Outra instância EpisodicMemory
+     * @param {object} [filter] { tags?, limit? }
+     * @returns {Promise<number>} Quantidade de episódios importados
+     */
+    async importFrom(sourceMemory, { tags, limit = 100 } = {}) {
+        // Busca episódios da sessão atual na memória fonte
+        const currentSessionId = this.#getCurrentSessionId();
+        if (!currentSessionId) {
+            throw new Error('[EpisodicMemory] Current session ID not available for import.');
+        }
+        
+        const episodes = await sourceMemory.recall(currentSessionId, { tags, limit });
+        
+        let importedCount = 0;
+        for (const episode of episodes) {
+            // Adapta o episode para a sessão atual
+            const adaptedEpisode = {
+                ...episode,
+                sessionId: currentSessionId,
+                id: undefined, // Gerará novo ID ao salvar
+            };
+            await this.#store.save(adaptedEpisode);
+            importedCount++;
+        }
+        
+        if (importedCount > 0) {
+            this.emit('imported', { from: sourceMemory.constructor.name, count: importedCount });
+        }
+        return importedCount;
+    }
+
+    /** Obtém a ID da sessão corrente (implementação depende do contexto). */
+    #getCurrentSessionId() {
+        // Esta é uma implementação básica - subclasses ou o contexto da aplicação
+        // devem fornecer o sessionId real
+        return null;
+    }
 }
 
 module.exports = { EpisodicMemory };

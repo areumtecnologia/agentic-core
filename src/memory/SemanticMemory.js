@@ -103,7 +103,6 @@ class SemanticMemory extends EventEmitter {
      * Recupera fatos de uma sessão.
      * @param {string} sessionId
      * @param {object} [filter] { subject?, tags?, limit? }
-     * @returns {Promise<SemanticFact[]>}
      */
     async recall(sessionId, { subject, tags, limit = 50 } = {}) {
         const records = await this.#store.findBySession(sessionId, { type: 'semantic', tags, limit });
@@ -113,31 +112,72 @@ class SemanticMemory extends EventEmitter {
         return records;
     }
 
-    /**
-     * Recupera fatos globais (sessionId = 'global').
-     * @param {object} [filter]
-     * @returns {Promise<SemanticFact[]>}
-     */
+    /** Recupera fatos globais (sessionId = 'global'). */
     async recallGlobal(filter = {}) {
         return this.recall('global', filter);
     }
 
     /**
-     * Remove um fato.
-     * @param {string} id
-     * @returns {Promise<boolean>}
+     * Busca fatos por padrão de predicate (ex: "prefers", "knows", "is").
+     * @param {string} predicate
+     * @param {object} [filter] { subject?, sessionId?, tags?, limit? }
+     * @returns {Promise<SemanticFact[]>}
      */
+    async recallByPredicate(predicate, { subject, sessionId, tags, limit = 50 } = {}) {
+        const filter = { type: 'semantic' };
+        if (tags && tags.length > 0) filter.tags = tags;
+        if (limit) filter.limit = limit;
+        
+        const records = await this.#store.findBySession(sessionId || 'global', filter);
+        
+        // Filtra pelo predicate correspondente
+        const filtered = records.filter(r => r.content.predicate === predicate);
+        
+        // Se há filtro de subject, aplica também
+        if (subject) {
+            return filtered.filter(r => r.content.subject === subject);
+        }
+        return filtered;
+    }
+
+    /**
+     * Busca fatos por range de confiança.
+     * @param {number} minConfidence  Confiança mínima (0-1)
+     * @param {number} [maxConfidence=1.0]  Confiança máxima (0-1)
+     * @param {object} [filter] { subject?, tags?, limit? }
+     * @returns {Promise<SemanticFact[]>}
+     */
+    async recallByConfidence(minConfidence, { maxConfidence = 1.0, subject, tags, limit = 50 } = {}) {
+        if (minConfidence < 0 || minConfidence > 1 || maxConfidence < 0 || maxConfidence > 1) {
+            throw new TypeError('[SemanticMemory] confidence values must be between 0 and 1.');
+        }
+        if (minConfidence > maxConfidence) {
+            throw new TypeError('[SemanticMemory] minConfidence must be <= maxConfidence.');
+        }
+        
+        const records = await this.#store.findBySession('global', {
+            type: 'semantic',
+            tags,
+            limit: 1000,
+        });
+        
+        return records
+            .filter(r => {
+                const confidence = r.content.confidence ?? 1.0;
+                return confidence >= minConfidence && confidence <= maxConfidence;
+            })
+            .filter(r => subject ? r.content.subject === subject : true)
+            .slice(0, limit);
+    }
+
+    /** Remove um fato. */
     async forget(id) {
         const deleted = await this.#store.delete(id);
         if (deleted) this.emit('forgotten', { id });
         return deleted;
     }
 
-    /**
-     * Remove todos os fatos de uma sessão.
-     * @param {string} sessionId
-     * @returns {Promise<number>}
-     */
+    /** Remove todos os fatos de uma sessão. */
     async forgetSession(sessionId) {
         const count = await this.#store.deleteBySession(sessionId);
         if (count > 0) this.emit('session_forgotten', { sessionId, count });

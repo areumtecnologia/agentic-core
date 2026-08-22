@@ -79,33 +79,27 @@ class SubAgent extends EventEmitter {
         const fullTask = contextPrompt ? `${contextPrompt}\n\nTask: ${task}` : task;
 
         let sessionId;
-        const registeredToolNames = [];
 
         try {
-            // Cria sessão efêmera no pai para isolar o estado
-            sessionId = `subagent:${this.#name}:${Date.now()}`;
+            // Cria sessão efêmera no pai para isolar o histórico da conversa
+            sessionId = `subagent:${this.#name}:${Date.now()}:${Math.random().toString(36).slice(2, 7)}`;
             this.#parent.createSession(sessionId, {
                 name: this.#name,
                 phone: 'subagent',
                 origin: 'subagent',
             });
 
-            // Injeta tools específicas do subagente (se houver)
-            const originalTools = this.#tools;
-            for (const tool of originalTools) {
-                const decl = tool.declaration || tool;
-                const toolName = typeof tool === 'string' ? tool : decl.name;
-                const handler = tool.handler;
-
-                if (handler) {
-                    this.#parent.registerTool(decl, handler);
-                } else if (decl.name) {
-                    this.#parent.registerTool(decl, () => {});
+            // Executa com tools e config isoladas do subagente (sem mutar o registry global do pai)
+            const result = await this.#parent.processMessage(
+                sessionId,
+                fullTask,
+                {},
+                {
+                    tools: this.#tools,
+                    agent: this.#config,
+                    signal
                 }
-                if (toolName) registeredToolNames.push(toolName);
-            }
-
-            const result = await this.#parent.processMessage(sessionId, fullTask, {}, { signal });
+            );
 
             const durationMs = Date.now() - startAt;
             const subAgentResult = {
@@ -133,11 +127,9 @@ class SubAgent extends EventEmitter {
             if (sessionId) {
                 this.#parent.clearSession(sessionId, { reason: 'subagent_completed', eventTrigger: false });
             }
-            for (const toolName of registeredToolNames) {
-                this.#parent.unregisterTool(toolName);
-            }
         }
     }
+
 
     /**
      * Constrói prompt de contexto a partir do objeto de contexto.

@@ -43,8 +43,8 @@ class SubAgent extends EventEmitter {
         if (!parent || !(parent instanceof AgenticCore)) {
             throw new TypeError('[SubAgent] parent must be an instance of AgenticCore.');
         }
-        if (!config || !(config instanceof AgentConfig)) {
-            throw new TypeError('[SubAgent] config must be an instance of AgentConfig.');
+        if (!config || (!(config instanceof AgentConfig) && (typeof config !== 'object' || !config.name))) {
+            throw new TypeError('[SubAgent] config must be an instance of AgentConfig or a valid agent config object.');
         }
         if (!name || typeof name !== 'string') {
             throw new TypeError('[SubAgent] name must be a non-empty string.');

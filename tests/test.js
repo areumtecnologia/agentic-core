@@ -25,12 +25,15 @@ const axios = require('axios');
 // "z-ai/glm-5.2", //"stepfun-ai/step-3.7-flash", //'google/diffusiongemma-26b-a4b-it' 
 // modelos NvidiaProvider multimodais com audio:
 // //'thinkingmachines/inkling', nvidia/nemotron-3-nano-omni-30b-a3b-reasoning, deepseek-ai/deepseek-v4-flash-0731
+// IHA089/drana-infinity-0.5b:0.5b qwen2.5:0.5b qwen3:0.6b qwen2.5-coder:0.5b qwen3.5:0.8b minicpm-v4.6:latest LiquidAI/lfm2.5-350m:latest LiquidAI/lfm2.5-1.2b-instruct:latest
 async function example() {
   const customerAgent = new AgenticCore({
-    provider: new NvidiaProvider({
-      apiKey: NVIDIA_API_KEY,
-      model: "deepseek-ai/deepseek-v4-flash-0731",
-    }),
+    apiKey: "AIzaSyAb783iJHsIkuCLKvDS_KD9eMz9ol7Hqhs",
+    model: ['gemma-4-26b-a4b-it', 'gemma-4-31b-it'],
+    // provider: new OllamaProvider({
+    //   apiKey: NVIDIA_API_KEY,
+    //   model: "qwen2.5-coder:0.5b",
+    // }),
     agent: new AgentConfig(
       'Monnalisa',
       'Áreum Tecnologia',
@@ -40,12 +43,16 @@ async function example() {
       `Responda às solicitações do usuário. Se não tiver uma resposta, use suas ferramentas para obter e raciocinar sobre o assunto. Seja claro, conciso e direto. Evite respostas vagas ou genéricas. Se não puder responder, admita que não sabe e use a ferramenta de raciocínio para obter uma resposta. Evite inventar informações. Mantenha a conversa natural e envolvente.`,
       'pt-BR'
     ),
-    temperature: 0.4,
-    topP: 0.9,
+    temperature: 0.9,
+    topP: 1,
     maxOutputTokens: 512,
     maxAgenticLoopTurns: 5,
-    turnTimeoutMs: 60000
+    turnTimeoutMs: 60000,
+    // reasoningTool: true, // Capacidade interna de raciocínio passo a passo (Sequential Thinking)
+    // calculatorTool: true, // Avaliador matemático e aritmético seguro em sandbox (PAL)
+    webSearchTool: true, // Ferramenta nativa e gratuita de busca na web (DuckDuckGo HTML Scraping)
   });
+
 
   // ── Eventos ───────────────────────────────────────────────────────────────
   customerAgent
@@ -53,6 +60,9 @@ async function example() {
     .on(AgentEvents.SESSION_CLEARED, ({ session }) => console.log(`[Sessão] Limpa: ${session.id}`))
     .on(AgentEvents.TURN_START, ({ depth, session }) => console.log(`[Loop] Turno ${depth} — sessão ${session.id}`))
     .on(AgentEvents.TURN_END, ({ depth, session }) => console.log(`[Loop] Turno ${depth} finalizado — sessão ${session.id}`))
+    .on(AgentEvents.REASONING_CHUNK, ({ thought, step, session }) => {
+      console.log('\x1b[36m%s\x1b[0m', `[Reasoning Step ${step || ''}] Sessão ${session?.id}: ${thought}`);
+    })
     .on(AgentEvents.RESPONSE, ({ response, reasoning, session, usageMetadata }) => {
       console.log(`[Reasoning] Sessão ${session.id}:`, reasoning);
       console.log('\x1b[32m%s\x1b[0m', `[Agente] Sessão ${session.id}:`, response);
@@ -78,130 +88,36 @@ async function example() {
   // ── Registra NOVA tool programaticamente (informando o Schema completo) ───
   customerAgent.registerTool({
     name: 'get_current_datetime',
-    description: 'Obtém e retorna a data e hora atual.',
+    description: 'Obtém e retorna a data e hora atual. Use para obter a data/hora atuais.',
     parameters: { type: Type.OBJECT, properties: {} },
   }, async () =>
     new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })
   );
 
-  customerAgent.registerTool({
-    name: 'reason_about',
-    description: 'Executa raciocínio adicional sobre um determinado assunto e retorna uma conclusão para aprimorar sua resposta. Chame esta ferramenta quando necessário, sempre que precisar refinar sua resposta.',
-    parameters: {
-      type: Type.OBJECT,
-      properties: {
-        request: {
-          type: Type.STRING,
-          description: 'Assunto ou pergunta sobre a qual o agente deve raciocinar'
-        }
-      }
-    },
-  }, async (request) => {
-    // Executa um novo turno de entrada para raciocinar sobre o assunto fornecido
-    const reasoningResponse = await customerAgent.processMessage(session.id, `Raciocine sobre o seguinte assunto e forneça uma conclusão: ${request}`);
-    return reasoningResponse;
-  });
-
-  // Registra uma tool para pesquisa de informacoes na web (geracao de query, cahamda de api, scraping, etc)
-  customerAgent.registerTool({
-    name: 'search_web',
-    description: 'Realiza uma pesquisa na web e retorna os resultados. Use para obter respostas atualizadas e relevantes para perguntas do usuário.',
-    parameters: {
-      type: Type.OBJECT,
-      properties: {
-        query: {
-          type: Type.STRING,
-          description: 'Termo de pesquisa a ser buscado na web'
-        }
-      }
-    }
-  }, async (query) => {
-    try {
-      const url = `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1`;
-
-      const response = await fetch(url);
-      const data = await response.json();
-      // Exibe o resumo principal (se houver)
-      return {
-        resume: data.AbstractText || 'Nenhum resumo encontrado.',
-        source: data.AbstractSource || 'Nenhuma fonte encontrada.',
-        sourceLink: data.AbstractURL || 'Nenhum link encontrado.'
-      };
-    } catch (error) {
-      console.error(`Erro ao pesquisar na web: ${error.message}`);
-      throw new Error('Erro ao pesquisar na web');
-    }
-  });
-
-  customerAgent.registerTool({
-    name: 'about_me',
-    description: 'Retorna informações sobre você.',
-    parameters: { type: Type.OBJECT, properties: {} },
-  }, async () => {
-    return 'Eu sou um assistente virtual chamado Monnalisa, criado pela Áreum Tecnologia para auxiliar clientes com suas solicitações.'
-  });
-
-  customerAgent.registerTool({
-    name: 'code_eval',
-    description: 'Executa codigo JavaScript fornecido e retorna o resultado. Use com cautela, apenas para cálculos ou lógica simples.',
-    parameters: {
-      type: Type.OBJECT,
-      properties: {
-        expression: {
-          type: Type.STRING,
-          description: 'Expressão JavaScript a ser avaliada'
-        }
-      }
-    },
-  }, async (expression) => {
-    try {
-      const result = eval(expression);
-      return result;
-    } catch (error) {
-      console.error(`Erro ao calcular expressão: ${expression}`);
-      throw new Error('Erro ao calcular expressão');
-    }
-  });
-
   const sid = Date.now();
+
   const session = customerAgent.createSession(sid.toString(), {
     name: 'Renan'
   });
 
   customerAgent.registerTool({
     name: 'end_chat',
-    description: 'Finaliza a sessão de chat.',
+    description: 'Encerra e finaliza a sessão de chat. Use esta ferramenta quando o usuário solicitar para finalizar, encerrar ou fechar o chat/conversa.',
     parameters: {
       type: Type.OBJECT,
       properties: {
-        sessionId: {
-          type: Type.STRING,
-          description: 'Retorna a ID da sessão a ser encerrada'
-        },
         reason: {
           type: Type.STRING,
           description: 'Motivo pelo qual a sessão foi encerrada'
         }
-      }
+      },
     },
-  }, async (sessionId, reason) => {
-    const result = customerAgent.clearSession(sessionId, { reason });
-    return { success: result };
+  }, async (args, signal, context = {}) => {
+    const targetSessionId = args?.sessionId || context.sessionId || (context.session && context.session.id);
+    const reason = args?.reason || 'user_requested';
+    const result = customerAgent.clearSession(targetSessionId, { reason });
+    return { success: result, message: 'Chat finalizado com sucesso.' };
   });
-
-  // const caminhoOgg = process.env.AUDIO_OGG_PATH; // Arquivo OGG de entrada (ex: áudio do WhatsApp)
-
-  // if (!fs.existsSync(caminhoOgg)) {
-  //   throw new Error(`Arquivo não encontrado no caminho: ${caminhoOgg}`);
-  // }
-
-  // console.log('🔄 Convertendo áudio OGG para formato WAV...');
-  // // Realiza a conversão em memória e retorna os bytes brutos
-  // const wavBuffer = await converterOggParaWavBuffer(caminhoOgg);
-
-  // // Transforma o buffer final de WAV diretamente em Base64
-  // const audioBase64 = wavBuffer.toString('base64');
-  // console.log('✅ Conversão concluída com sucesso.');
 
   const questions = [{
     text: "Olá, quem é você?",
@@ -214,11 +130,14 @@ async function example() {
   }, {
     text: "Qual o resultado da expressão matemática 2 + 2 * 3?",
   }, {
+    text: "Se um produto custa 200 reais e tem 15% de desconto, qual o valor final?",
+  }, {
+    text: "Pense passo a passo: em uma corrida com corredores A, B e C, se B está na frente de C e A está na frente de B, quem venceu a corrida?",
+  }, {
     text: "Pesquise na web: 'O que é o AgenticCore da Áreum Tecnologia?'",
   }, {
     text: "Finalizar sessão de chat.",
   }
-
     // {
     //   text: "O que é isso?",
     //   attachments: { base64: IMAGE_BASE64, mimeType: 'image/png' }

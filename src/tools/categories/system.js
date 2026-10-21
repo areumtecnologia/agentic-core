@@ -112,12 +112,21 @@ class SystemTools {
         }
       },
       execute: async (args) => {
-        const { keys } = args;
+        const { keys } = args || {};
+
+        const isSensitive = (key) => {
+          const upper = String(key || '').toUpperCase();
+          return ['KEY', 'SECRET', 'TOKEN', 'PASSWORD', 'PASS', 'AUTH', 'CREDENTIAL', 'PRIVATE'].some(term => upper.includes(term));
+        };
         
         if (keys && Array.isArray(keys)) {
           const result = {};
           keys.forEach(key => {
-            result[key] = process.env[key] || null;
+            if (!isSensitive(key)) {
+              result[key] = process.env[key] || null;
+            } else {
+              result[key] = '[REDACTED_FOR_SECURITY]';
+            }
           });
           return result;
         }
@@ -125,7 +134,7 @@ class SystemTools {
         // Return non-sensitive env vars only
         const safeVars = {};
         for (const [key, value] of Object.entries(process.env)) {
-          if (!key.includes('KEY') && !key.includes('SECRET') && !key.includes('TOKEN') && !key.includes('PASSWORD')) {
+          if (!isSensitive(key)) {
             safeVars[key] = value;
           }
         }

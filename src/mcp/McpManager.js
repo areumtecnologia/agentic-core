@@ -17,6 +17,7 @@ class McpManager extends EventEmitter {
         if (!agent) throw new TypeError('[McpManager] agent is required.');
         this.agent = agent;
         this.clients = new Map();
+        this.serverTools = new Map();
     }
 
     /**
@@ -43,6 +44,7 @@ class McpManager extends EventEmitter {
 
         await client.connect();
         this.clients.set(name, client);
+        this.serverTools.set(name, new Set());
 
         try {
             // Obtém as ferramentas suportadas pelo servidor
@@ -51,8 +53,7 @@ class McpManager extends EventEmitter {
                 this.#registerToolInAgent(name, tool);
             }
         } catch (err) {
-            client.disconnect();
-            this.clients.delete(name);
+            this.unregisterServer(name);
             throw err;
         }
     }
@@ -60,6 +61,7 @@ class McpManager extends EventEmitter {
     #registerToolInAgent(serverName, tool) {
         // Prefixa o nome da ferramenta com o nome do servidor para evitar conflitos de nomes
         const agentToolName = `${serverName}_${tool.name}`;
+        this.serverTools.get(serverName)?.add(agentToolName);
         
         // Mapeia o JSON Schema do MCP para o formato simplificado esperado pelo agente
         const parameters = this.#convertSchema(tool.inputSchema);
@@ -122,17 +124,41 @@ class McpManager extends EventEmitter {
     }
 
     /**
-     * Encerra todas as conexões ativas com os servidores MCP
+     * Desregistra um servidor MCP e remove todas as ferramentas associadas do agente.
+     * @param {string} name
+     * @returns {boolean}
      */
-    shutdown() {
-        for (const [name, client] of this.clients.entries()) {
+    unregisterServer(name) {
+        const client = this.clients.get(name);
+        if (!client && !this.serverTools.has(name)) return false;
+
+        if (client) {
             try {
                 client.disconnect();
-            } catch (e) {
-                // Silencia erros no cleanup
+            } catch (e) {}
+            this.clients.delete(name);
+        }
+
+        const tools = this.serverTools.get(name);
+        if (tools) {
+            for (const toolName of tools) {
+                this.agent.unregisterTool(toolName);
             }
+            this.serverTools.delete(name);
+        }
+
+        return true;
+    }
+
+    /**
+     * Encerra todas as conexões ativas com os servidores MCP e limpa as ferramentas
+     */
+    shutdown() {
+        for (const name of Array.from(this.clients.keys())) {
+            this.unregisterServer(name);
         }
         this.clients.clear();
+        this.serverTools.clear();
     }
 }
 

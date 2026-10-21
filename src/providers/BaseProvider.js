@@ -35,10 +35,29 @@ class BaseProvider {
      * @param {number}   params.config.maxOutputTokens
      * @param {string}   [params.config.thinkingLevel]
      * @param {AbortSignal} [params.signal]    Signal para cancelamento/timeout
-     * @returns {Promise<ProviderResponse>}    Resposta padronizada
-     */
     async generateContent({ contents, systemInstruction, tools, config, signal }) {
         throw new Error(`[${this.constructor.name}] Method generateContent() must be implemented.`);
+    }
+
+    /**
+     * Gera conteúdo em streaming a partir do modelo de IA.
+     * Retorna um AsyncIterable que emite chunks parciais de texto, pensamentos ou tool_calls.
+     * Implementação padrão com fallback para generateContent caso o provedor não sobrescreva.
+     *
+     * @param {object} params
+     * @returns {AsyncIterable<object>}
+     */
+    async *generateContentStream({ contents, systemInstruction, tools, config, signal }) {
+        const fullResponse = await this.generateContent({ contents, systemInstruction, tools, config, signal });
+        const candidate = fullResponse.candidates?.[0];
+        if (candidate?.content?.parts) {
+            for (const part of candidate.content.parts) {
+                if (part.text) yield { type: 'token', text: part.text };
+                if (part.thought) yield { type: 'thought', thought: part.text || part.thought };
+                if (part.functionCall) yield { type: 'tool_call', functionCall: part.functionCall };
+            }
+        }
+        yield { type: 'response', response: fullResponse };
     }
 
     /**

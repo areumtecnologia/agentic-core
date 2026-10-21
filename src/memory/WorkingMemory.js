@@ -102,50 +102,24 @@ class WorkingMemory extends EventEmitter {
         const count = this.#turns.length - this.#keepRecent;
         if (count < this.#minTurnsToCompact) return [];
         
-        // Cria pares [turn, importanceScore] e ordena pelo score (menor primeiro)
-        const scoredTurns = this.#turns.map((turn, i) => ({
-            turn,
-            score: this.#importanceScores[i] ?? 0.5,
-        }));
-        scoredTurns.sort((a, b) => a.score - b.score);
-        
-        // Retorna as turns com menor importância (até o count necessário)
-        const compactable = scoredTurns
-            .slice(0, count)
-            .map(item => item.turn);
-        return compactable;
+        // Retorna os turnos mais antigos elegíveis para compactação em ordem cronológica
+        return this.#turns.slice(0, count);
     }
 
     /**
      * Substitui os turns antigos por um resumo consolidado.
-     * Mantém apenas os #keepRecent turns mais recentes, priorizando os de maior importância.
+     * Mantém os #keepRecent turns mais recentes em ordem cronológica estrita.
      * @param {string} newSummary  Resumo consolidado (existente + novos)
      */
     applyCompaction(newSummary) {
-        // Seleciona quais turns manter (os de maior importância entre os #keepRecent mais recentes)
-        const recentTurns = this.#turns.slice(-this.#keepRecent);
-        const recentScores = this.#importanceScores.slice(-this.#keepRecent);
-        
-        // Ordena as turns recentes por importância (menor para maior)
-        const indexedTurns = recentTurns.map((turn, i) => ({
-            turn,
-            score: recentScores[i] ?? 0.5,
-        }));
-        indexedTurns.sort((a, b) => b.score - a.score);
-        
-        // Mantém apenas as turns mais importantes (apenas #keepRecent dos mais importantes)
-        // Se há mais turns do que o limite, mantém apenas as #keepRecent mais importantes
-        const importantTurns = indexedTurns
-            .slice(0, this.#keepRecent)
-            .map(item => item.turn);
-        
-        const compacted = this.#turns.filter(
-            turn => !importantTurns.includes(turn)
-        );
-        
-        this.#turns = importantTurns;
+        const count = Math.max(0, this.#turns.length - this.#keepRecent);
+        const compacted = this.#turns.slice(0, count);
+
+        this.#turns = this.#turns.slice(count);
+        this.#importanceScores = this.#importanceScores.slice(count);
         this.#compactedSummary = newSummary;
         this.#lastCompactionAt = new Date();
+
         this.emit('compacted', {
             compactedCount: compacted.length,
             remainingCount: this.#turns.length,
@@ -207,6 +181,7 @@ class WorkingMemory extends EventEmitter {
     /** Limpa toda a memória de trabalho. */
     clear() {
         this.#turns = [];
+        this.#importanceScores = [];
         this.#compactedSummary = null;
         this.#lastCompactionAt = null;
         this.#retrievedRefs = [];
@@ -217,6 +192,7 @@ class WorkingMemory extends EventEmitter {
     toJSON() {
         return {
             turns: this.#turns,
+            importanceScores: [...this.#importanceScores],
             compactedSummary: this.#compactedSummary,
             lastCompactionAt: this.#lastCompactionAt,
             retrievedRefs: this.#retrievedRefs,

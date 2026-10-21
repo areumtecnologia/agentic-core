@@ -1,6 +1,6 @@
 # Agentic Core
 
-> **v3.2.0** — Framework profissional para orquestração de Agentes Autônomos em Node.js com suporte a múltiplos provedores redundantes (Google Gemini, OpenAI, Claude, Ollama, Nvidia), suporte nativo ao protocolo MCP (Model Context Protocol) como Cliente e Servidor, failover automático em caso de falhas 5xx, suporte a mídias (imagens, áudio, vídeo), gerenciamento concorrente transparente (debounce + abort), sessões integradas, **memória hierárquica com compactação de contexto**, **SubAgentes com delegação**, **orquestração paralela de tarefas (DAG)**, **plataforma multi-tenant**, **persistência de sessões** e **sistema de ferramentas embutidas com validação, composição e marketplace**.
+> **v3.4.0** — Framework profissional para orquestração de Agentes Autônomos em Node.js com suporte a múltiplos provedores redundantes (Google Gemini, OpenAI, Claude, Ollama, Nvidia), **transbordo humano inteligente omnichannel (`escalate_to_human`) com auto-briefing e pausa de sessão**, **SLM Engine modularizado (`IntentRouter` e `OutputSanitizer`) com suporte bilíngue PT/EN**, **persistência distribuída de sessões (`SessionStore`) pluggable e sincronizada**, **ferramentas nativas de raciocínio passo a passo (`reasoningTool`)**, **cálculo determinístico em sandbox segura (`calculatorTool`)**, **pesquisa web gratuita e sem API keys (`webSearchTool`)**, **streaming em tempo real com `TokenStream`**, **auto-RAG de memória com `ContextAugmenter`**, **segurança avançada com `ToolSecurityPolicy`**, **orquestração em DAG condicional**, observabilidade e telemetria com `TelemetryProvider`, suporte nativo ao protocolo MCP e failover automático em falhas 5xx.
 
 ---
 
@@ -8,30 +8,41 @@
 
 | Recurso | Descrição |
 |---|---|
+| **Human-in-the-Loop & Handover (v3.4)** | `handoverTool: true` fornece a ferramenta `escalate_to_human`. Gera briefing executivo automático para atendentes humanos, pausa a sessão (`session.isPaused`), bloqueia consumo desnecessário de tokens do LLM e emite eventos `AgentEvents.HUMAN_HANDOVER`. |
+| **SLM Engine Modularizado (v3.4)** | Arquitetura desacoplada com `IntentRouter` (detecção de intenções e poda dinâmica bilíngue PT-BR/EN-US) e `OutputSanitizer` (eliminação de loops repetitivos em SLMs e extração limpa de resultados sem vazamento de JSON). |
+| **State Store Pluggable Integrado (v3.4)** | Conexão nativa do `AgenticCore` com `SessionStore` (como `InMemorySessionStore` e futuros adaptadores Redis/MySQL), com sincronização automática de turnos, `agent.saveSession(sid)` e `agent.loadSession(sid)`. |
+| **Raciocínio Passo a Passo (v3.3.1)** | `reasoningTool: true` ativa a ferramenta de *Sequential Thinking* (`record_thought_step`). O agente decompõe problemas complexos em etapas, hipóteses e revisões com emissão de eventos `AgentEvents.REASONING_CHUNK`. |
+| **Cálculo Determinístico PAL (v3.3.1)** | `calculatorTool: true` (ou `mathTool`) disponibiliza a ferramenta `calculate_expression`. Avalia expressões matemáticas em sandbox isolada `node:vm` protegida contra RCE com timeout de 1.500ms e precisão exata. |
+| **Pesquisa Web Nativa e Gratuita (v3.3.1)** | `webSearchTool: true` (ou `searchTool`) fornece a ferramenta `web_search`. Realiza buscas em tempo real na internet via DuckDuckGo sem chaves de API, com extração limpa de snippets e proteção anti-SSRF. |
+| **Compatibilidade com SLMs (v3.3.1)** | Roteamento inteligente de intenção e parser resiliente de chamadas XML/JSON, garantindo **100% de precisão de acerto** comprovado em modelos ultracompactos locais como **`qwen3:0.6b`**. |
+| **Streaming & Realtime (v3.3)** | `processMessageStream()` e `TokenStream` com suporte a `for await (const chunk of stream)` e eventos para tokens parciais, raciocínio (`thought`), chamadas e retornos de ferramentas. |
+| **Auto-RAG de Memória (v3.3)** | `ContextAugmenter` para recuperação e injeção automática de fatos duradouros e episódios passados no contexto do agente (`autoRetrieveMemory: true`). |
+| **Segurança & Sandboxing (v3.3)** | `ToolSecurityPolicy` com rate limiting por sessão, listas de bloqueio/permissão de ferramentas, proteção anti-SSRF em `WebTools` e confinamento de caminho contra path traversal em `FileTools`. |
+| **DAG Condicional & Reativo (v3.3)** | `TaskGraph` e `ParallelExecutor` com suporte a branches condicionais (`condition`), transformação de contexto entre nós (`transformContext`) e tarefas via funções diretas (`fn`). |
+| **Telemetria & Observabilidade (v3.3)** | `TelemetryProvider` com rastreamento hierárquico de spans (`startSpan`/`endSpan`), latência (`durationMs`), status e contabilidade acumulada de tokens (`prompt`, `completion`, `total`). |
 | **Multi-Provider Nativo** | Suporte a **Google Gemini**, **OpenAI GPT**, **Anthropic Claude**, **Ollama** (modelos locais) e **Nvidia NIM**. |
-| **Redundância e Failover** | Possibilidade de configurar múltiplos modelos/provedores com `currentIndex` atômico. Transição automática imediata em caso de indisponibilidade (erro 5xx/rate limit/timeout). |
-| **Suporte Nativo a MCP** | Conecte-se a servidores MCP externos (Stdio/SSE) e importe ferramentas dinamicamente no agente, ou exponha o próprio agente como um MCP Server. |
+| **Redundância e Failover** | Múltiplos modelos/provedores com `currentIndex` atômico. Transição imediata em falhas 5xx, rate limits ou timeouts. |
+| **Suporte Nativo a MCP** | Integração completa com o protocolo MCP (Model Context Protocol), atuando tanto como Cliente MCP quanto Servidor MCP via Stdio/SSE. |
 | **Memória Hierárquica** | `WorkingMemory` (janela deslizante), `ContextCompactor` (resumos via LLM), `EpisodicMemory` (episódios significativos) e `SemanticMemory` (fatos e preferências). |
 | **SubAgentes Isolados** | `SubAgent` para execução de tarefas especializadas em segundo plano, com gestão efêmera de sessão e desregistro automático de ferramentas temporárias. |
-| **Orquestração DAG** | `Orchestrator`, `TaskGraph` e `ParallelExecutor` para execução paralela de tarefas com grafos de dependências acíclicos. |
 | **Plataforma Multi-Tenant** | `PlatformManager` para gestão de múltiplos tenants, agentes e sessões isoladas. |
-| **Persistência de Sessões** | `SessionStore` e `InMemorySessionStore` para salvamento, restauração e exclusão persistente de estado. |
-| **Suporte Multimídia** | Envio de anexos (imagens, áudio, vídeo) em Base64 no processamento de mensagens. |
+| **Suporte Multimídia** | Envio de anexos (imagens, áudio, vídeo, PDFs) em Base64 no processamento de mensagens. |
 | **Concorrência Transparente** | Gerenciamento automático de mensagens consecutivas (`debounceMs`) com cancelamento ativo no LLM. |
 | **Agentic Loop Completo** | Tool calls encadeados com execução recursiva e contextualizada. |
 | **Gerenciamento de Sessões** | TTL configurável com renovação automática por atividade e normalização transparente de chaves (string/número). |
-| **Registro Dinâmico de Tools** | Schema JSON completo, handlers assíncronos e desregistro dinâmico via `unregisterTool()`. |
-| **Retry com Backoff Exponencial** | Recuperação automática de falhas com jitter configurável e classificação centralizada de erros. |
-| **Timeouts Granulares** | AbortController por turno (padrão 90s) e por ferramenta (70% do turno). |
-| **Detecção de Vulnerabilidades** | Rastreamento via ferramenta interna de segurança e encerramento automático de sessões suspeitas. |
-| **Eventos Estruturados** | `EventEmitter` completo para monitoramento (`SESSION_CREATED`, `SESSION_UPDATED`, `PROVIDER_FALLBACK`, `RESPONSE`, etc.). |
-| **Sistema de Ferramentas** | **15+ ferramentas embutidas** organizadas em categorias (web, file, database, system, communication) com validação de schema, composição, chaining e marketplace. |
+| **Sistema de Ferramentas** | **19+ ferramentas embutidas** organizadas em categorias (handover, reasoning, web, file, database, system, communication) com validação de schema, composição, chaining e marketplace. |
 
 ---
 
 ## 📦 Instalação
 
-### Via npm (GitHub Packages)
+### Via npm (Registro Público Oficial)
+
+```bash
+npm install @areumtecnologia/agentic-core
+```
+
+### Via GitHub Packages
 
 ```bash
 npm install github:areumtecnologia/agentic-core
@@ -63,7 +74,6 @@ cp .env.example .env
 ```env
 # .env
 GOOGLE_GEMINI_API_KEY=sua-chave-aqui
-# Se usar outros provedores:
 OPENAI_API_KEY=sua-chave-openai-aqui
 ANTHROPIC_API_KEY=sua-chave-anthropic-aqui
 NVIDIA_API_KEY=sua-chave-nvidia-aqui
@@ -80,33 +90,23 @@ require('dotenv').config();
 const { 
   AgenticCore, 
   AgentConfig, 
-  AgentEvents, 
   Type, 
   GoogleProvider 
 } = require('@areumtecnologia/agentic-core');
 
-// 1. Configurar o agente
-const agentConfig = new AgentConfig(
-  'Monnalisa',                                          // Nome do agente
-  'Áreum Tecnologia',                                   // Nome da empresa
-  'Soluções em IA e Automação de Processos.',           // Detalhes da empresa
-  'Agente de Vendas',                                   // Papel da missão
-  'Atuar como assistente virtual e agente de vendas.',  // Objetivo da missão
-  `1. Cumprimente o lead de forma acolhedora.
-   2. Identifique as necessidades do cliente.
-   3. Utilize as ferramentas disponíveis para obter dados.
-   4. Efetive o atendimento de forma humanizada.`,      // Instruções da missão
-  'pt-BR'                                               // Idioma do raciocínio interno
-);
+// 1. Configurar o agente (suporta construtor direto ou encadeamento fluente)
+const agentConfig = new AgentConfig()
+  .setName('Monnalisa')
+  .setCompany('Áreum Tecnologia', 'Soluções em IA e Automação de Processos.')
+  .setMission('Agente de Vendas', 'Atuar como assistente virtual e agente de vendas.', 'Atenda os clientes cordialmente.')
+  .setReasoningLanguage('pt-BR');
 
 // 2. Instanciar o agente com provedor
 const agent = new AgenticCore({
-  providers: [
-    new GoogleProvider({
-      apiKey: process.env.GOOGLE_GEMINI_API_KEY,
-      model: 'gemma-4-26b-a4b-it'
-    })
-  ],
+  provider: new GoogleProvider({
+    apiKey: process.env.GOOGLE_GEMINI_API_KEY,
+    model: 'gemma-4-26b-a4b-it'
+  }),
   debounceMs: 1500,
   agent: agentConfig,
 });
@@ -139,72 +139,334 @@ console.log(response.response);
 
 ---
 
-## 🔮 Provedores de IA Suportados
+## 🛠️ Ferramentas Nativas Embutidas (v3.3.1)
 
-A biblioteca suporta múltiplos provedores de IA de forma intercambiável e resiliente.
-
-### Redundância e Failover Automático
-
-Você pode configurar múltiplos modelos e/ou provedores para failover automático em caso de indisponibilidade (erro 5xx, rate limit ou timeout).
+A versão 3.3.1 adiciona **três ferramentas nativas de primeira classe** que podem ser ativadas diretamente via flags no construtor do `AgenticCore`, sem necessidade de configuração manual ou chaves de API externas:
 
 ```javascript
-const { GoogleProvider, OpenAIProvider, AgenticCore } = require('@areumtecnologia/agentic-core');
+const agent = new AgenticCore({
+  agent: agentConfig,
+  provider: new OllamaProvider({ model: 'qwen3:0.6b' }),
+  calculatorTool: true, // Avaliação matemática determinística isolada
+  reasoningTool: true,  // Pensamento sequencial estruturado (scratchpad)
+  webSearchTool: true   // Pesquisa na Web gratuita em tempo real
+});
+```
+
+### 1. 🧮 Cálculo Matemático Determinístico (`calculatorTool`)
+
+Modelos de linguagem frequentemente alucinam em operações aritméticas ou cálculos encadeados. Com `calculatorTool: true` (ou `mathTool: true`), o agente recebe a ferramenta `calculate_expression`, delegando cálculos para um motor determinístico seguro baseado em `node:vm`:
+
+- **Sandbox Blindada**: Escopo isolado sem acesso a `process`, `require`, `fs`, `global` ou protótipos de execução (proteção anti-RCE).
+- **Timeout Estrito**: Interrupção forçada em no máximo 1.500ms contra loops infinitos.
+- **Funções Matemáticas Suportadas**: Todas as funções do objeto padrão `Math` (`Math.sqrt`, `Math.pow`, `Math.sin`, `Math.round`, etc.) e operadores padrão (`+`, `-`, `*`, `/`, `%`, `**`).
+
+```javascript
+// O agente chama automaticamente calculate_expression para responder:
+const res = await agent.processMessage(session.id, 'Quanto é (45 * 12) + (130 / 2) - 15?');
+console.log(res.response); // "O resultado é 590."
+```
+
+### 2. 🧩 Raciocínio Sequencial Passo a Passo (`reasoningTool`)
+
+Inspirado no paradigma *Sequential Thinking*, a flag `reasoningTool: true` ativa a ferramenta `record_thought_step` (alias `recordThoughtStep`). O agente utiliza um scratchpad dinâmico para estruturar problemas complexos antes de sintetizar a resposta final:
+
+- **Metadados Estruturados**: Cada passo registra `thoughtNumber`, `totalThoughts`, `isRevision`, `revisesThought` e `hypothesis`.
+- **Emissão em Tempo Real**: Cada etapa de pensamento emite o evento `AgentEvents.REASONING_CHUNK` no agente e eventos do tipo `thought` no streaming.
+- **Histórico Consolidado**: O raciocínio acumulado é retornado em `result.reasoning` e salvo no histórico da sessão.
+
+```javascript
+agent.on(AgentEvents.REASONING_CHUNK, ({ thought, thoughtNumber, totalThoughts }) => {
+  console.log(`[Pensamento ${thoughtNumber}/${totalThoughts}]: ${thought}`);
+});
+
+const res = await agent.processMessage(
+  session.id, 
+  'Analise os prós e contras de migrar uma arquitetura monolítica para microsserviços passo a passo.'
+);
+```
+
+### 3. 🌐 Pesquisa na Web Nativa e Gratuita (`webSearchTool`)
+
+Com `webSearchTool: true` (ou `searchTool: true`), o agente ganha a capacidade de consultar a internet em tempo real através da ferramenta `web_search`:
+
+- **100% Gratuita e sem API Keys**: Utiliza o motor de busca do DuckDuckGo HTML com raspagem semântica robusta.
+- **Decodificação de Links**: Resolve automaticamente URLs de redirecionamento interno (`//duckduckgo.com/l/?uddg=...`).
+- **Segurança Anti-SSRF Integrada**: Bloqueia endereços IP privados, localhost e metadados de nuvem.
+
+```javascript
+const res = await agent.processMessage(
+  session.id, 
+  'Pesquise as novidades mais recentes lançadas no Node.js 22 e resuma os principais pontos.'
+);
+console.log(res.response);
+```
+
+### ⚡ 100% de Precisão Comprovada com Modelos Compactos (SLMs)
+
+O `AgenticCore` conta com roteamento inteligente de intenção e parser resiliente de chamadas XML/JSON (`<tool_call>...`), garantindo que até mesmo modelos ultracompactos locais rodem ferramentas com 100% de assertividade:
+
+- **Bateria de Testes com `qwen3:0.6b` (Ollama local)**:
+  - 🧮 Cálculo Matemático: **10/10 (100% de sucesso)**
+  - 🧩 Raciocínio Sequencial: **10/10 (100% de sucesso)**
+  - 🌐 Pesquisa na Web: **10/10 (100% de sucesso)**
+  - **Total Geral: 30/30 (100% de aprovação)**
+
+---
+
+## 🤝 Human-in-the-Loop & Handover Omnichannel (v3.4)
+
+O `AgenticCore v3.4` introduz suporte nativo a transbordo humano inteligente (`handoverTool: true`, habilitado por padrão) com auto-briefing e pausa defensiva de processamento:
+
+- **Ferramenta `escalate_to_human`**: Invocada pelo modelo quando o cliente solicita atendimento humano explicitamente ou quando a solicitação ultrapassa os limites autônomos.
+- **Briefing Executivo**: Gera resumo automático contendo motivo, nível de prioridade (`low`, `medium`, `high`, `urgent`) e a última mensagem do cliente.
+- **Pausa Defensiva**: A sessão entra em status `paused` (`session.isPaused = true`), bloqueando chamadas ao LLM e evitando desperdício de tokens até que o atendente finalize ou devolva o atendimento.
+- **Eventos em Tempo Real**: Emite `AgentEvents.HUMAN_HANDOVER`, `AgentEvents.SESSION_PAUSED` e `AgentEvents.SESSION_RESUMED`.
+
+```javascript
+const { AgenticCore, AgentConfig, AgentEvents } = require('@areumtecnologia/agentic-core');
 
 const agent = new AgenticCore({
-  providers: [
-    new GoogleProvider({ apiKey: 'key1', model: 'gemma-4-26b-a4b-it' }),
-    { type: 'google', apiKey: 'key1', model: 'gemma-4-31b-it' },
-    { type: 'openai', apiKey: 'key2', model: 'gpt-4o' }
-  ],
-  agent: agentConfig
+  agent: new AgentConfig('SupportAgent', 'Corp', 'Details', 'Role', 'Obj', 'Inst'),
+  handoverTool: true, // ativo por padrão
+});
+
+// Escuta solicitações de transbordo para fila humana
+agent.on(AgentEvents.HUMAN_HANDOVER, ({ sessionId, reason, priority, briefing, user }) => {
+  console.log(`[HANDOVER] Sessão ${sessionId} transferida para atendente humano.`);
+  console.log(`Prioridade: ${priority} | Motivo: ${reason}`);
+  console.log(`Briefing executivo: ${briefing}`);
+});
+
+// Retoma o atendimento automático pela IA após a intervenção humana
+agent.resumeSession(sessionId);
+```
+
+---
+
+## 💾 Persistência de Sessões Pluggable (v3.4)
+
+Conecte um `SessionStore` (como `InMemorySessionStore` ou adaptadores Redis/MySQL) diretamente ao `AgenticCore`:
+
+```javascript
+const { AgenticCore, InMemorySessionStore } = require('@areumtecnologia/agentic-core');
+
+const store = new InMemorySessionStore();
+const agent = new AgenticCore({
+  agent: myConfig,
+  sessionStore: store, // Sincronização automática a cada turno
+});
+
+// Salva e restaura sessões entre diferentes instâncias ou pods
+await agent.saveSession('session-123');
+const restoredSession = await agent.loadSession('session-123');
+```
+
+---
+
+## 🧠 SLM Engine Modularizado (v3.4)
+
+As heurísticas de intenção determinísticas e a sanitização de respostas foram desacopladas para testes isolados e alta performance em modelos compactos:
+
+```javascript
+const { IntentRouter, OutputSanitizer } = require('@areumtecnologia/agentic-core');
+
+// Roteamento determinístico bilíngue (PT/EN)
+IntentRouter.shouldEnforceMath('Quanto é 250 + 15?'); // true
+IntentRouter.shouldEnforceDatetime('What time is it now?'); // true
+
+// Poda dinâmica de ferramentas (Tool Pruning) para economizar tokens em saudações
+const pruned = IntentRouter.pruneToolsForTurn(tools, 'Olá, bom dia!');
+
+// Sanitização de loops repetitivos e extração limpa de JSON
+const clean = OutputSanitizer.extractCleanToolResult('{"success":true,"result":42}'); // 42
+```
+
+---
+
+## ⚡ Streaming em Tempo Real (v3.3)
+
+O Agentic Core v3.3 introduz suporte nativo a streaming completo de tokens e pensamentos em tempo real através do `TokenStream`:
+
+```javascript
+const { AgenticCore, AgentConfig, OpenAIProvider } = require('@areumtecnologia/agentic-core');
+
+const agent = new AgenticCore({
+  agent: new AgentConfig().setName('StreamAgent').setReasoningLanguage('pt-BR'),
+  provider: new OpenAIProvider({ apiKey: process.env.OPENAI_API_KEY, model: 'gpt-4o' })
+});
+
+const session = agent.createSession('sess-stream-1', { name: 'Cliente' });
+
+// Inicia streaming em tempo real
+const stream = agent.processMessageStream(session.id, 'Explique a teoria da relatividade resumidamente.');
+
+// Consumo via iteração assíncrona
+for await (const chunk of stream) {
+  if (chunk.type === 'token') {
+    process.stdout.write(chunk.text);
+  } else if (chunk.type === 'thought') {
+    console.log(`\n[Raciocínio interno: ${chunk.thought}]\n`);
+  } else if (chunk.type === 'tool_call') {
+    console.log(`\n[Executando ferramenta: ${chunk.toolCall.name}]...\n`);
+  }
+}
+
+// A resposta final estruturada pode ser obtida ao final
+const finalResult = await stream.response;
+console.log('\nFinalizado:', finalResult.sent_at);
+```
+
+---
+
+## 🧠 Memória & Auto-RAG (v3.3)
+
+Com `autoRetrieveMemory: true`, o `ContextAugmenter` pesquisa automaticamente memórias semânticas e episódicas antes de cada turno e enriquece a mensagem enviada ao modelo:
+
+```javascript
+const { AgenticCore, InMemoryStore, AgentConfig, GoogleProvider } = require('@areumtecnologia/agentic-core');
+
+const store = new InMemoryStore();
+const core = new AgenticCore({
+  agent: new AgentConfig().setName('SupportAgent'),
+  provider: new GoogleProvider({ apiKey: process.env.GOOGLE_GEMINI_API_KEY }),
+  memoryStore: store,
+  autoRetrieveMemory: true // Ativa RAG automático de memória
+});
+
+// Ensina fatos à memória duradoura do cliente
+await core.semanticMemory.learn({
+  sessionId: 'sess-001',
+  subject: 'plano_usuario',
+  predicate: 'tipo',
+  object: 'Plano Enterprise VIP'
+});
+
+const session = core.createSession('sess-001', { name: 'Carlos' });
+
+// O modelo recebe automaticamente o contexto histórico relevante!
+const response = await core.processMessage(session.id, 'Qual é o meu plano?');
+console.log(response.response);
+```
+
+---
+
+## 🛡️ Segurança, Sandboxing e Políticas de Ferramentas (v3.3)
+
+### 1. `ToolSecurityPolicy` (Rate Limiting e Listas de Bloqueio)
+
+Controle quais ferramentas podem ser chamadas e com que frequência:
+
+```javascript
+const { ToolSecurityPolicy, AgenticCore } = require('@areumtecnologia/agentic-core');
+
+const securityPolicy = new ToolSecurityPolicy({
+  blockedTools: ['execute_command', 'delete_database'],
+  maxInvocationsPerMinute: 20 // Limite de chamadas por minuto por sessão
+});
+
+const core = new AgenticCore({
+  agent,
+  provider,
+  securityPolicy // Aplicado globalmente em todas as execuções de tools
+});
+```
+
+### 2. Confinamento de Diretório em `FileTools`
+
+Evita ataques de *path traversal* (como `../../etc/passwd`) e bloqueia leitura de arquivos confidenciais (`.env`, `.git`, chaves privadas, certificados):
+
+```javascript
+const { FileTools } = require('@areumtecnologia/agentic-core');
+
+const fileTools = new FileTools({
+  baseDir: './workspace/safe_dir' // Apenas caminhos dentro de safe_dir são permitidos
+});
+```
+
+### 3. Proteção Anti-SSRF em `WebTools`
+
+Bloqueia chamadas para endereços de rede privada, `localhost` e metadados de nuvem (`169.254.169.254`, `metadata.google.internal`):
+
+```javascript
+const { WebTools } = require('@areumtecnologia/agentic-core');
+
+const webTools = new WebTools();
+// URLs privadas ou de metadados disparam SecurityViolation e são bloqueadas automaticamente
+```
+
+---
+
+## 📊 Observabilidade e Telemetria (v3.3)
+
+Monitore spans de execução, duração em milissegundos e consumo acumulado de tokens com o `TelemetryProvider`:
+
+```javascript
+const { TelemetryProvider, AgenticCore } = require('@areumtecnologia/agentic-core');
+
+const telemetry = new TelemetryProvider();
+
+telemetry.on('span:end', (span) => {
+  console.log(`[Trace] Span "${span.name}" concluído em ${span.durationMs}ms com status: ${span.status}`);
+});
+
+telemetry.on('metrics:tokens', ({ added, cumulative }) => {
+  console.log(`[Tokens] +${added.total} tokens (Acumulado: ${cumulative.totalTokens})`);
+});
+
+const core = new AgenticCore({
+  agent,
+  provider,
+  telemetry // Registra automaticamente spans de mensagens, geração de modelo e execução de ferramentas
 });
 ```
 
 ---
 
-## 🧠 Memória Hierárquica e Compactação de Contexto
+## 🌐 Orquestração de Tarefas em Grafo (DAG)
 
-O Agentic Core possui uma camada de memória dividida em 4 níveis:
-
-1. **`WorkingMemory`**: Mantém a janela deslizante de $N$ turns recentes enviados ao LLM.
-2. **`ContextCompactor`**: Compacta automaticamente turns antigos em resumos estruturados via LLM. Suporta filtragem por importância (`importanceThreshold`) para manter apenas as turns mais críticas.
-3. **`EpisodicMemory`**: Armazena episódios significativos da conversa para recuperação de contexto. Suporta **compartilhamento de sessões** (`shareSession`) e **esvaziamento de sessões** (`forgetSession`).
-4. **`SemanticMemory`**: Armazena fatos, preferências e conhecimento factual (`subject`, `predicate`, `object`). Suporta **busca por predicate**, **filtro por confiança** (`recallByConfidence`) e **recuperação global**.
+Orquestre grafos de tarefas com dependências, condições de branch e transformação dinâmica de dados:
 
 ```javascript
-const { AgenticCore, InMemoryStore } = require('@areumtecnologia/agentic-core');
+const { TaskGraph, ParallelExecutor } = require('@areumtecnologia/agentic-core');
 
-const memoryStore = new InMemoryStore();
+const graph = new TaskGraph();
 
-const agent = new AgenticCore({
-  provider: new GoogleProvider({ apiKey: process.env.GOOGLE_GEMINI_API_KEY, model: 'gemma-4-26b-a4b-it' }),
-  agent: agentConfig,
-  memoryStore,
-  compaction: {
-    maxOutputTokens: 1024,
-    temperature: 0.3,
-    language: 'pt-BR'
-  }
+// Tarefa base
+graph.add({
+  id: 'analise_credito',
+  fn: async () => ({ score: 850, aprovado: true })
 });
 
-// EpisodicMemory - compartilhar episódios entre sessões
-await episodicMemory.shareSession('session_1', 'session_2', { limit: 100 });
+// Tarefa condicional (só executa se aprovado)
+graph.add({
+  id: 'gerar_contrato',
+  deps: ['analise_credito'],
+  condition: (ctx) => ctx.results.analise_credito.aprovado === true,
+  transformContext: (ctx) => ({ scoreCliente: ctx.results.analise_credito.score }),
+  fn: async (transformedContext) => ({ contratoId: 'CTR-9988', dados: transformedContext })
+});
 
-// EpisodicMemory - esquecer sessão
-await episodicMemory.forgetSession('session_1');
+// Tarefa de rejeição (será ignorada/skipped)
+graph.add({
+  id: 'notificar_recusa',
+  deps: ['analise_credito'],
+  condition: (ctx) => ctx.results.analise_credito.aprovado === false,
+  fn: async () => ({ emailEnviado: true })
+});
 
-// SemanticMemory - buscar por predicate
-await semanticMemory.recallByPredicate('prefers', { subject: 'user' });
+const executor = new ParallelExecutor(graph);
+const results = await executor.run();
 
-// SemanticMemory - filtrar por confiança
-await semanticMemory.recallByConfidence(0.85, { limit: 10 });
+console.log('Contrato gerado:', results.gerar_contrato);
+console.log('Recusa:', results.notificar_recusa.status); // 'skipped'
 ```
 
 ---
 
 ## 🤖 SubAgentes com Delegação de Tarefas
 
-O `SubAgent` permite executar tarefas especializadas em segundo plano utilizando a infraestrutura do agente pai.
+O `SubAgent` permite executar tarefas especializadas em segundo plano utilizando a infraestrutura do agente pai:
 
 - Possui **sessão efêmera própria** limpa automaticamente ao finalizar.
 - Suporta **ferramentas temporárias** desregistradas automaticamente no bloco `finally`.
@@ -223,23 +485,6 @@ const researcher = new SubAgent({
 
 const result = await researcher.execute('Pesquisar relatório financeiro do setor');
 console.log(result.output);
-```
-
----
-
-## 🌐 Orquestração de Tarefas em Grafo (DAG)
-
-Orquestre tarefas complexas com dependências paralelas via `Orchestrator`, `TaskGraph` e `ParallelExecutor`:
-
-```javascript
-const { Orchestrator } = require('@areumtecnologia/agentic-core');
-
-const orchestrator = new Orchestrator({ maxConcurrent: 4 });
-
-orchestrator.addTask('task-1', { agent: subAgentA, task: 'Coletar dados' });
-orchestrator.addTask('task-2', { agent: subAgentB, task: 'Processar dados', dependsOn: ['task-1'] });
-
-const results = await orchestrator.execute();
 ```
 
 ---
@@ -269,28 +514,21 @@ await store.save(session.id, session.toJSON());
 
 ---
 
-## 📋 API de Referência
+## 🎯 Eventos do Agente
 
-### Métodos Principais do `AgenticCore`
-
-- **`createSession(id, user, options?)`**: Cria uma nova sessão. `id` pode ser string ou número.
-- **`processMessage(sessionId, text, attachment?, options?)`**: Processa mensagens com suporte a anexos Base64 e `AbortSignal`.
-- **`registerTool(declaration, handler)`**: Registra ou sobrescreve uma ferramenta.
-- **`unregisterTool(name)`**: Remove uma ferramenta do registro por nome e invalida o cache de configuração.
-- **`clearSession(sessionId, options?)`**: Remove a sessão e limpa timers de TTL/Idle e buffers de debounce.
-- **`getSession(sessionId)`**: Retorna o objeto da sessão.
-- **`getSessionByUser(filter)`**: Busca sessão por nome, telefone ou origem.
-
----
-
-## 🎯 Eventos
-
-Escute eventos com `agent.on(AgentEvents.EVENT_NAME, callback)`:
+Escute eventos através de `agent.on(AgentEvents.EVENT_NAME, callback)`:
 
 ```javascript
 const { AgentEvents } = require('@areumtecnologia/agentic-core');
 
 agent
+  .on(AgentEvents.TOKEN, ({ token }) => process.stdout.write(token))
+  .on(AgentEvents.REASONING_CHUNK, ({ thought, thoughtNumber, totalThoughts }) => console.log('Pensando:', thought))
+  .on(AgentEvents.TOOL_STREAM_START, ({ toolCall }) => console.log('Iniciando tool:', toolCall.name))
+  .on(AgentEvents.TOOL_STREAM_END, ({ toolResult }) => console.log('Tool finalizada:', toolResult.name))
+  .on(AgentEvents.HUMAN_HANDOVER, ({ sessionId, reason, priority, briefing }) => console.log(`Transbordo [${priority}]:`, briefing))
+  .on(AgentEvents.SESSION_PAUSED, ({ session }) => console.log(`Sessão pausada: ${session.id}`))
+  .on(AgentEvents.SESSION_RESUMED, ({ session }) => console.log(`Sessão retomada: ${session.id}`))
   .on(AgentEvents.SESSION_CREATED, ({ session }) => console.log(`Sessão criada: ${session.id}`))
   .on(AgentEvents.SESSION_UPDATED, ({ session, reason }) => console.log(`Sessão atualizada: ${session.id} (${reason})`))
   .on(AgentEvents.SESSION_EXPIRED, ({ session }) => console.log(`Sessão expirada: ${session.id}`))
@@ -337,30 +575,40 @@ agentic-core/
 │   ├── SubAgent.js                       # Agente especializado efêmero
 │   ├── types.js                          # Tipos neutros (Type, ThinkingLevel)
 │   ├── utils.js                          # withRetry com backoff e jitter
+│   ├── slm/                              # SLM Engine (IntentRouter, OutputSanitizer)
+│   │   ├── index.js                      # Exportações do módulo SLM
+│   │   ├── IntentRouter.js               # Heurísticas e tool pruning bilíngue PT/EN
+│   │   └── OutputSanitizer.js            # Sanitização de loops e unboxing limpo de tools
+│   ├── streaming/                        # Streaming em tempo real (TokenStream)
+│   ├── telemetry/                        # Observabilidade e tracing (TelemetryProvider)
 │   ├── tools/                            # Sistema de ferramentas embutidas
 │   │   ├── index.js                      # Exportações do sistema de ferramentas
-│   │   ├── ToolRegistry.js               # Registro e descoberta de ferramentas
+│   │   ├── ToolRegistry.js               # Registro e descoberta unificada de ferramentas
 │   │   ├── ToolComposer.js               # Composição e chaining de ferramentas
 │   │   ├── ToolValidator.js              # Validação de schema e segurança
 │   │   ├── ToolMarketplace.js            # Marketplace e descoberta
+│   │   ├── ToolSecurityPolicy.js         # Políticas de segurança e rate limiting
 │   │   └── categories/                   # Categorias de ferramentas
-│   │       ├── web.js                    # Ferramentas web (search, fetch, validate)
-│   │       ├── file.js                   # Ferramentas de arquivo
+│   │       ├── reasoning.js              # Sequential thinking (record_thought_step)
+│   │       ├── web.js                    # Ferramentas web com busca DuckDuckGo e anti-SSRF
+│   │       ├── file.js                   # Ferramentas de arquivo com path confinement
 │   │       ├── database.js               # Ferramentas de banco de dados
-│   │       ├── system.js                 # Ferramentas de sistema
+│   │       ├── system.js                 # Ferramentas de sistema (com sanitização e vm sandbox)
 │   │       └── communication.js          # Ferramentas de comunicação
 │   ├── mcp/                              # Protocolo MCP (Client, Server, Manager)
-│   ├── memory/                           # Memória (Working, Compactor, Episodic, Semantic)
-│   ├── orchestrator/                     # Orquestração (TaskGraph, ParallelExecutor, Orchestrator)
+│   ├── memory/                           # Memória (Working, Compactor, Episodic, Semantic, ContextAugmenter)
+│   ├── orchestrator/                     # Orquestração (TaskGraph, TaskNode, ParallelExecutor, Orchestrator)
 │   ├── persistence/                      # Persistência (SessionStore, InMemorySessionStore)
 │   ├── platform/                         # Multi-tenancy (PlatformManager)
 │   └── providers/                        # Providers (Google, OpenAI, Anthropic, Ollama, Nvidia)
 ├── tests/
+│   ├── test_next_level_v34.js            # Validação do SLM Engine, State Store e Handover v3.4
+│   ├── test_code_review_fixes.js         # Validação de correções da revisão de código
+│   ├── test_ten_each.js                  # Bateria de 30 testes de ferramentas nativas (100% de aprovação)
+│   ├── test_evolution_v33.js             # Suíte completa de testes da v3.3.0 (Streaming, RAG, Segurança, DAG, Telemetria)
+│   ├── test_v32_improvements.js          # Validação das melhorias da v3.2.0
 │   ├── test_bugs_fix.js                  # Suíte de teste para correções de bugs
-│   ├── test_no_mutation.js               # Teste de regressão para imutabilidade de contents
 │   ├── test_retry_classification.js      # Validação de erros retentáveis vs permanentes
-│   ├── test_mcp.js                       # Testes do protocolo MCP
-│   ├── test_debounce_abort.js            # Concorrência e cancelamento
 │   └── ...                               # Outros testes de serviço e integração
 ├── package.json
 └── README.md
@@ -368,65 +616,27 @@ agentic-core/
 
 ---
 
-## 🛠️ Sistema de Ferramentas Embutidas
-
-O Agentic Core inclui um sistema completo de ferramentas embutidas com **15+ ferramentas** organizadas em 5 categorias:
-
-### Categorias de Ferramentas
-
-| Categoria | Ferramentas | Descrição |
-|-----------|-------------|-----------|
-| **Web** | `web_search`, `http_fetch`, `validate_url` | Busca web, requisições HTTP e validação de URLs |
-| **File** | `read_file`, `write_file`, `list_directory`, `file_exists` | Operações de arquivo e diretório |
-| **Database** | `sql_query`, `db_schema`, `db_health` | Consultas SQL e gerenciamento de banco |
-| **System** | `system_info`, `execute_command`, `get_env`, `current_datetime` | Informações do sistema e execução de comandos |
-| **Communication** | `send_email`, `send_sms`, `send_notification`, `trigger_webhook` | Comunicação e notificações |
-
-### Recursos do Sistema de Ferramentas
-
-- **Validação de Schema**: Validação automática de argumentos com JSON Schema
-- **Composição**: Chain de ferramentas com transformação de dados
-- **Execução Paralela**: Execução simultânea de múltiplas ferramentas
-- **Marketplace**: Descoberta, rating e reviews de ferramentas
-- **Segurança**: Validação de segurança e sanitização de inputs
-
-### Exemplo de Uso
-
-```javascript
-const { registry, composer } = require('@areumtecnologia/agentic-core');
-
-// Usar ferramenta diretamente
-const result = await registry.executeTool('web_search', {
-  query: 'artificial intelligence'
-});
-
-// Compor ferramentas
-const workflow = composer.compose('research', [
-  { name: 'web_search', transform: args => ({ query: args.topic }) },
-  { name: 'write_file', transform: (results) => ({
-    filePath: 'research.md',
-    content: JSON.stringify(results, null, 2)
-  })}
-]);
-
-await workflow.execute({ topic: 'AI trends' });
-```
-
----
-
 ## 🧪 Testes
 
 ```bash
-# Executar suíte padrão
+# Executar suíte padrão completa
 npm test
 
-# Executar testes específicos de regressão e correções
-node tests/test_bugs_fix.js
-node tests/test_no_mutation.js
-node tests/test_retry_classification.js
+# Executar suíte de novidades da v3.4.0 (SLM, Handover, State Store)
+node tests/test_next_level_v34.js
 
-# Testar sistema de ferramentas
-node src/tools/examples/complete_example.js
+# Executar bateria de 30 testes das ferramentas nativas v3.3.1
+node tests/test_ten_each.js
+
+# Executar suíte de novidades da versão 3.3.0
+npm run test:evolution
+
+# Executar testes específicos de regressão e correções
+node tests/test_code_review_fixes.js
+node tests/test_v32_improvements.js
+node tests/test_bugs_fix.js
+node tests/test_retrocompatibility.js
+node tests/test_retry_classification.js
 ```
 
 ---

@@ -78,7 +78,6 @@ async function withRetry(fn, {
                     }
                     resolve();
                 }, delay);
-                timer.unref?.();
             });
         }
     }

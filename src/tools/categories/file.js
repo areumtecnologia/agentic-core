@@ -1,15 +1,48 @@
 /**
  * File Tools Category
- * Tools for file operations: read, write, list, etc.
+ * Tools for file operations with sandbox path confinement and security policies.
  */
 
 const fs = require('fs').promises;
 const path = require('path');
 
 class FileTools {
-  constructor() {
+  constructor(options = {}) {
     this.tools = new Map();
+    this.baseDir = options.baseDir ? path.resolve(options.baseDir) : null;
+    this.blockedPatterns = options.blockedPatterns || [
+      /(\/|\\|^)\.env(\..+)?$/i,
+      /(\/|\\|^)\.git(\/|\\|$)/i,
+      /\.(key|pem|crt|pfx|p12)$/i,
+      /id_rsa/i,
+      /(\/|\\)etc(\/|\\)(passwd|shadow)/i,
+      /(\/|\\)Windows(\/|\\)System32(\/|\\)config/i,
+    ];
     this.initializeTools();
+  }
+
+  _resolveSafePath(inputPath) {
+    if (!inputPath || typeof inputPath !== 'string') {
+      throw new Error('Invalid file path provided.');
+    }
+
+    const resolved = this.baseDir ? path.resolve(this.baseDir, inputPath) : path.resolve(inputPath);
+
+    if (this.baseDir) {
+      const rel = path.relative(this.baseDir, resolved);
+      if (rel.startsWith('..') || path.isAbsolute(rel)) {
+        throw new Error(`Security Violation: Path "${inputPath}" escapes the allowed root directory.`);
+      }
+    }
+
+    const normalized = resolved.replace(/\\/g, '/');
+    for (const pattern of this.blockedPatterns) {
+      if (pattern.test(normalized) || pattern.test(path.basename(resolved))) {
+        throw new Error(`Security Violation: Access to "${path.basename(resolved)}" is blocked.`);
+      }
+    }
+
+    return resolved;
   }
 
   initializeTools() {
@@ -17,7 +50,7 @@ class FileTools {
     this.tools.set('read_file', {
       name: 'read_file',
       category: 'file',
-      description: 'Read content from a file',
+      description: 'Read content from a file within allowed directory',
       schema: {
         type: 'object',
         properties: {
@@ -33,10 +66,11 @@ class FileTools {
         required: ['filePath']
       },
       execute: async (args) => {
-        const { filePath, encoding = 'utf8' } = args;
+        const { filePath, encoding = 'utf8' } = args || {};
+        const safePath = this._resolveSafePath(filePath);
         try {
-          const content = await fs.readFile(filePath, encoding);
-          const stats = await fs.stat(filePath);
+          const content = await fs.readFile(safePath, encoding);
+          const stats = await fs.stat(safePath);
           
           return {
             filePath,
@@ -55,7 +89,7 @@ class FileTools {
     this.tools.set('write_file', {
       name: 'write_file',
       category: 'file',
-      description: 'Write content to a file',
+      description: 'Write content to a file within allowed directory',
       schema: {
         type: 'object',
         properties: {
@@ -79,11 +113,12 @@ class FileTools {
         required: ['filePath', 'content']
       },
       execute: async (args) => {
-        const { filePath, content, encoding = 'utf8', append = false } = args;
+        const { filePath, content, encoding = 'utf8', append = false } = args || {};
+        const safePath = this._resolveSafePath(filePath);
         try {
           const flag = append ? 'a' : 'w';
-          await fs.writeFile(filePath, content, { encoding, flag });
-          const stats = await fs.stat(filePath);
+          await fs.writeFile(safePath, content, { encoding, flag });
+          const stats = await fs.stat(safePath);
           
           return {
             filePath,
@@ -122,9 +157,10 @@ class FileTools {
         required: ['dirPath']
       },
       execute: async (args) => {
-        const { dirPath, recursive = false, filter } = args;
+        const { dirPath, recursive = false, filter } = args || {};
+        const safePath = this._resolveSafePath(dirPath);
         try {
-          const items = await this.listDirRecursive(dirPath, recursive, filter);
+          const items = await this.listDirRecursive(safePath, recursive, filter);
           
           return {
             dirPath,
@@ -154,9 +190,10 @@ class FileTools {
         required: ['path']
       },
       execute: async (args) => {
-        const { path: filePath } = args;
+        const { path: filePath } = args || {};
+        const safePath = this._resolveSafePath(filePath);
         try {
-          const stats = await fs.stat(filePath);
+          const stats = await fs.stat(safePath);
           return {
             path: filePath,
             exists: true,

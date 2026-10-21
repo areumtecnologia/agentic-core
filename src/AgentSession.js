@@ -17,6 +17,8 @@ class AgentSession extends EventEmitter {
   /** @type {Date}     */ lastActivity = new Date();
   /** @type {object|null} */ retryState = null;
   /** @type {number}   */ idleTimeoutMs = 0;
+  /** @type {string}   */ status = 'active'; // 'active' | 'paused' | 'escalated'
+  /** @type {object|null} */ handoverInfo = null;
   /** @type {boolean}  */ idleRepeat = false;
   /** @type {boolean}  */ idleProcessing = false;
 
@@ -25,14 +27,40 @@ class AgentSession extends EventEmitter {
     #idleTimer = null;
     #onIdle;
 
-    constructor(id, user, onExpire, onIdle) {
+    isSmallModel = false;
+
+    get isPaused() {
+        return this.status === 'paused' || this.status === 'escalated';
+    }
+
+    pause(reason = 'Manual pause', priority = 'medium', briefing = '') {
+        this.status = 'paused';
+        this.handoverInfo = {
+            reason,
+            priority,
+            briefing,
+            timestamp: new Date()
+        };
+        this.emit('status_changed', { status: this.status, handoverInfo: this.handoverInfo });
+    }
+
+    resume() {
+        this.status = 'active';
+        this.handoverInfo = null;
+        this.emit('status_changed', { status: this.status });
+    }
+
+    constructor(id, user, onExpire, onIdle, options = {}) {
         super();
         this.id = id || uuid();
         this.user = Object.freeze({ ...user });
         this.#onExpire = onExpire;
         this.#onIdle = onIdle;
-        // Substitui o array de histórico por WorkingMemory (janela deslizante)
-        this.#workingMemory = new WorkingMemory({ maxTurns: 20, keepRecent: 10, minTurnsToCompact: 5 });
+        this.isSmallModel = Boolean(options.isSmallModel);
+        const maxTurns = options.maxTurns || (this.isSmallModel ? 8 : 20);
+        const keepRecent = options.keepRecent || (this.isSmallModel ? 4 : 10);
+        const minTurnsToCompact = options.minTurnsToCompact || (this.isSmallModel ? 3 : 5);
+        this.#workingMemory = new WorkingMemory({ maxTurns, keepRecent, minTurnsToCompact });
     }
 
     touch() { this.lastActivity = new Date(); }
@@ -59,7 +87,35 @@ class AgentSession extends EventEmitter {
     }
 
     appendHistory(...turns) {
-        this.#workingMemory.append(...turns);
+        let turnsToAppend = turns;
+        if (this.isSmallModel) {
+            // Sanitiza turns para modelos compactos: trunca saídas volumosas de ferramentas em turnos passados
+            // Clona superficialmente os objetos para não mutar as referências originais do chamador
+            turnsToAppend = turns.map(t => {
+                if (t && t.role === 'tool' && Array.isArray(t.parts)) {
+                    let hasModified = false;
+                    const newParts = t.parts.map(p => {
+                        if (p?.functionResponse?.response?.result && typeof p.functionResponse.response.result === 'string' && p.functionResponse.response.result.length > 350) {
+                            hasModified = true;
+                            return {
+                                ...p,
+                                functionResponse: {
+                                    ...p.functionResponse,
+                                    response: {
+                                        ...p.functionResponse.response,
+                                        result: p.functionResponse.response.result.substring(0, 350) + '... [resumo compactado]'
+                                    }
+                                }
+                            };
+                        }
+                        return p;
+                    });
+                    return hasModified ? { ...t, parts: newParts } : t;
+                }
+                return t;
+            });
+        }
+        this.#workingMemory.append(...turnsToAppend);
         this.emit(AgentSessionEvents.HISTORY_UPDATED, this.getHistory());
     }
 
@@ -95,6 +151,8 @@ class AgentSession extends EventEmitter {
             history: this.getHistory(),
             idleTimeoutMs: this.idleTimeoutMs,
             idleRepeat: this.idleRepeat,
+            status: this.status,
+            handoverInfo: this.handoverInfo,
         };
     }
 }

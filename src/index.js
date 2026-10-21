@@ -41,12 +41,15 @@ const {
     SemanticMemory,
     SemanticMemoryEnhanced,
     SemanticSearch,
-    SharedMemory
+    SharedMemory,
+    ContextAugmenter,
 } = require('./memory');
 const { SubAgent } = require('./SubAgent');
-const { Orchestrator, TaskGraph, ParallelExecutor } = require('./orchestrator');
+const { Orchestrator, TaskGraph, ParallelExecutor, TaskNode } = require('./orchestrator');
 const { PlatformManager } = require('./platform');
 const { SessionStore, InMemorySessionStore } = require('./persistence');
+const { TokenStream } = require('./streaming');
+const { TelemetryProvider } = require('./telemetry');
 const {
     registry,
     composer,
@@ -59,7 +62,11 @@ const {
     DatabaseTools,
     SystemTools,
     CommunicationTools,
+    ReasoningTools,
+    MathTools,
+    ToolSecurityPolicy,
 } = require('./tools');
+const { IntentRouter, OutputSanitizer } = require('./slm');
 
 module.exports = {
     AgenticCore,
@@ -92,11 +99,17 @@ module.exports = {
     SemanticMemoryEnhanced,
     SemanticSearch,
     SharedMemory,
+    ContextAugmenter,
+    // ── Streaming ──
+    TokenStream,
+    // ── Telemetria ──
+    TelemetryProvider,
     // ── SubAgent ──
     SubAgent,
     // ── Orquestração ──
     Orchestrator,
     TaskGraph,
+    TaskNode,
     ParallelExecutor,
     // ── Plataforma multi-tenant ──
     PlatformManager,
@@ -110,9 +123,15 @@ module.exports = {
     ToolComposer,
     ToolValidator,
     ToolMarketplace,
+    ToolSecurityPolicy,
     WebTools,
     FileTools,
     DatabaseTools,
     SystemTools,
     CommunicationTools,
+    ReasoningTools,
+    MathTools,
+    // ── SLM & Heurísticas ──
+    IntentRouter,
+    OutputSanitizer,
 };

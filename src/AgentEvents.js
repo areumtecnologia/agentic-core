@@ -22,6 +22,13 @@ const AgentEvents = Object.freeze({
     PROVIDER_FALLBACK: 'provider_fallback',          // Transição automática de provedor por erro 5xx
     SESSION_IDLE_TIMEOUT: 'session_idle_timeout',    // Sessão ficou ociosa (usuário demorou a responder)
     SESSION_UPDATED: 'session_updated',             // Sessão atualizada (ex: após compactação)
+    TOKEN: 'token',                                 // Chunk de texto parcial emitido durante streaming
+    REASONING_CHUNK: 'reasoning_chunk',             // Chunk de raciocínio / pensamento emitido durante streaming
+    TOOL_STREAM_START: 'tool_stream_start',         // Início de chamada de ferramenta em streaming
+    TOOL_STREAM_END: 'tool_stream_end',             // Fim de execução de ferramenta em streaming
+    HUMAN_HANDOVER: 'human_handover',               // Transbordo para atendente humano solicitado
+    SESSION_PAUSED: 'session_paused',               // Sessão pausada (ex: aguardando atendimento humano)
+    SESSION_RESUMED: 'session_resumed',             // Sessão retomada após pausa/transbordo
 });
 
 module.exports = { AgentEvents };

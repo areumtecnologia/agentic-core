@@ -13,6 +13,29 @@ class AgentConfig {
         this.reasoningLanguage = reasoningLanguage;
     }
 
+    setName(name) {
+        this.agentName = name;
+        return this;
+    }
+
+    setCompany(name, details) {
+        this.agentCompanyName = name;
+        this.agentCompanyDetails = details;
+        return this;
+    }
+
+    setMission(role, objective, instructions) {
+        this.missionRole = role;
+        this.missionObjective = objective;
+        this.missionInstructions = instructions;
+        return this;
+    }
+
+    setReasoningLanguage(language) {
+        this.reasoningLanguage = language;
+        return this;
+    }
+
     build() {
         return {
             name: this.agentName,

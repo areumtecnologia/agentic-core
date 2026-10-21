@@ -8,14 +8,25 @@ class TaskGraph {
 
     /**
      * Adiciona um nó ao grafo.
-     * @param {string} id
-     * @param {object} opts
+     * Suporta add(id, opts) ou add({ id, ...opts }).
+     * @param {string|object} idOrOpts
+     * @param {object} [options={}]
      * @returns {TaskNode}
      */
-    add(id, { agent, task, dependsOn = [], context = {} }) {
-        const node = new TaskNode({ id, agent, task, dependsOn, context });
+    add(idOrOpts, options = {}) {
+        let id;
+        let opts;
+        if (typeof idOrOpts === 'object' && idOrOpts !== null) {
+            opts = idOrOpts;
+            id = opts.id;
+        } else {
+            id = idOrOpts;
+            opts = options;
+        }
+
+        const node = new TaskNode({ id, ...opts });
         this.#nodes.set(id, node);
-        for (const dep of dependsOn) {
+        for (const dep of node.dependsOn) {
             this.#edges.push({ from: dep, to: id });
         }
         return node;

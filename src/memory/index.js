@@ -14,6 +14,7 @@ const { SemanticMemory } = require('./SemanticMemory');
 const { SemanticMemoryEnhanced } = require('./SemanticMemoryEnhanced');
 const { SemanticSearch } = require('./SemanticSearch');
 const { SharedMemory } = require('./SharedMemory');
+const { ContextAugmenter } = require('./ContextAugmenter');
 
 module.exports = {
     MemoryStore,
@@ -26,4 +27,5 @@ module.exports = {
     SemanticMemoryEnhanced,
     SemanticSearch,
     SharedMemory,
+    ContextAugmenter,
 };

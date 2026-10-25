@@ -29,6 +29,11 @@ const AgentEvents = Object.freeze({
     HUMAN_HANDOVER: 'human_handover',               // Transbordo para atendente humano solicitado
     SESSION_PAUSED: 'session_paused',               // Sessão pausada (ex: aguardando atendimento humano)
     SESSION_RESUMED: 'session_resumed',             // Sessão retomada após pausa/transbordo
+    // ── Ciclo de Vida de Skills (npx skills) ──
+    SKILL_SEARCHED: 'skill_searched',               // Busca de skills realizada
+    SKILL_INSTALLED: 'skill_installed',             // Nova skill instalada
+    SKILL_ACTIVATED: 'skill_activated',             // Instruções de skill carregadas na sessão
+    SKILL_EXECUTION: 'skill_execution',             // Script de skill executado
 });
 
 module.exports = { AgentEvents };

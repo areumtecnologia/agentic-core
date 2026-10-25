@@ -67,6 +67,12 @@ const {
     ToolSecurityPolicy,
 } = require('./tools');
 const { IntentRouter, OutputSanitizer } = require('./slm');
+const {
+    SkillsCliWrapper,
+    SkillsLoader,
+    SkillsManager,
+    registerSkillsTools,
+} = require('./skills');
 
 module.exports = {
     AgenticCore,
@@ -134,4 +140,9 @@ module.exports = {
     // ── SLM & Heurísticas ──
     IntentRouter,
     OutputSanitizer,
+    // ── Ecossistema Open Agent Skills (npx skills) ──
+    SkillsCliWrapper,
+    SkillsLoader,
+    SkillsManager,
+    registerSkillsTools,
 };

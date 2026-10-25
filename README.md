@@ -1,6 +1,6 @@
 # Agentic Core
 
-> **v3.4.0** — Framework profissional para orquestração de Agentes Autônomos em Node.js com suporte a múltiplos provedores redundantes (Google Gemini, OpenAI, Claude, Ollama, Nvidia), **transbordo humano inteligente omnichannel (`escalate_to_human`) com auto-briefing e pausa de sessão**, **SLM Engine modularizado (`IntentRouter` e `OutputSanitizer`) com suporte bilíngue PT/EN**, **persistência distribuída de sessões (`SessionStore`) pluggable e sincronizada**, **ferramentas nativas de raciocínio passo a passo (`reasoningTool`)**, **cálculo determinístico em sandbox segura (`calculatorTool`)**, **pesquisa web gratuita e sem API keys (`webSearchTool`)**, **streaming em tempo real com `TokenStream`**, **auto-RAG de memória com `ContextAugmenter`**, **segurança avançada com `ToolSecurityPolicy`**, **orquestração em DAG condicional**, observabilidade e telemetria com `TelemetryProvider`, suporte nativo ao protocolo MCP e failover automático em falhas 5xx.
+> **v3.4.0** — Framework profissional para orquestração de Agentes Autônomos em Node.js com suporte a múltiplos provedores redundantes (Google Gemini, OpenAI, Claude, Ollama, Nvidia), **auto-extensão com o ecossistema Open Agent Skills (`npx skills` / skills.sh)**, **transbordo humano inteligente omnichannel (`escalate_to_human`) com auto-briefing e pausa de sessão**, **SLM Engine modularizado (`IntentRouter` e `OutputSanitizer`) com suporte bilíngue PT/EN**, **persistência distribuída de sessões (`SessionStore`) pluggable e sincronizada**, **ferramentas nativas de raciocínio passo a passo (`reasoningTool`)**, **cálculo determinístico em sandbox segura (`calculatorTool`)**, **pesquisa web gratuita e sem API keys (`webSearchTool`)**, **streaming em tempo real com `TokenStream`**, **auto-RAG de memória com `ContextAugmenter`**, **segurança avançada com `ToolSecurityPolicy`**, **orquestração em DAG condicional**, observabilidade e telemetria com `TelemetryProvider`, suporte nativo ao protocolo MCP e failover automático em falhas 5xx.
 
 ---
 
@@ -8,6 +8,7 @@
 
 | Recurso | Descrição |
 |---|---|
+| **Open Agent Skills (`npx skills`)** | Suporte nativo ao ecossistema aberto de skills ([skills.sh](https://skills.sh/)). O agente pesquisa (`skills_search`), instala dinamicamente pacotes (`skills_install`), injeta instruções especializadas sob demanda via *lazy loading* (`skills_load`) e executa scripts de automação (`skills_execute_script`) com allowlist de repositórios confiáveis (`trustedOwners`). |
 | **Human-in-the-Loop & Handover (v3.4)** | `handoverTool: true` fornece a ferramenta `escalate_to_human`. Gera briefing executivo automático para atendentes humanos, pausa a sessão (`session.isPaused`), bloqueia consumo desnecessário de tokens do LLM e emite eventos `AgentEvents.HUMAN_HANDOVER`. |
 | **SLM Engine Modularizado (v3.4)** | Arquitetura desacoplada com `IntentRouter` (detecção de intenções e poda dinâmica bilíngue PT-BR/EN-US) e `OutputSanitizer` (eliminação de loops repetitivos em SLMs e extração limpa de resultados sem vazamento de JSON). |
 | **State Store Pluggable Integrado (v3.4)** | Conexão nativa do `AgenticCore` com `SessionStore` (como `InMemorySessionStore` e futuros adaptadores Redis/MySQL), com sincronização automática de turnos, `agent.saveSession(sid)` e `agent.loadSession(sid)`. |
@@ -211,6 +212,95 @@ O `AgenticCore` conta com roteamento inteligente de intenção e parser resilien
   - 🧩 Raciocínio Sequencial: **10/10 (100% de sucesso)**
   - 🌐 Pesquisa na Web: **10/10 (100% de sucesso)**
   - **Total Geral: 30/30 (100% de aprovação)**
+
+---
+
+## 🧩 Ecossistema Open Agent Skills (`npx skills` & skills.sh)
+
+O `AgenticCore` possui suporte nativo e bidirecional ao ecossistema aberto de **Agent Skills** ([skills.sh](https://skills.sh/)), padronizado através do CLI `npx skills` e arquivos de especificação `SKILL.md` (YAML frontmatter + instruções de engenharia).
+
+Essa capacidade transforma o agente em um sistema **auto-extensível em tempo de execução (*Self-Extending Agent*)**:
+- **Descoberta Dinâmica**: O agente identifica lacunas em seu conhecimento especializado (ex: React 19, regras de CI/CD para Kubernetes, otimização Next.js, auditorias de segurança) e pesquisa no catálogo aberto com `skills_search`.
+- **Instalação Sob Demanda**: Instala pacotes oficiais ou comunitários diretamente no workspace com `skills_install`.
+- **Injeção Inteligente de Contexto (*Lazy Loading*)**: Para não inflar a janela de contexto, o catálogo inicial injeta no System Prompt apenas resumos compactos de 1 linha (`<skills_protocol>`). O agente invoca `skills_load` para puxar os passos e regras detalhados somente quando a skill for ativada na sessão.
+- **Execução Controlada de Scripts**: Skills que fornecem scripts auxiliares em sua pasta `scripts/` (benchmarks, linters, geradores de código) podem ser executadas com `skills_execute_script`.
+- **Governança & Segurança**: Suporte a *allowlist* de organizações confiáveis (`trustedOwners`, ex: `vercel-labs`, `anthropics`, `areumtecnologia`) para mitigar riscos de pacotes maliciosos.
+
+### 🛠️ Configuração e Inicialização
+
+```javascript
+const { AgenticCore, AgentConfig, AgentEvents } = require('@areumtecnologia/agentic-core');
+
+const agent = new AgenticCore({
+  apiKey: process.env.GOOGLE_GEMINI_API_KEY,
+  agent: new AgentConfig(
+    'DevArchitect',
+    'Áreum Tecnologia',
+    'Empresa de IA',
+    'Tech Lead de Engenharia',
+    'Desenvolver código resiliente e de alto padrão',
+    'Consulte suas skills instaladas sempre que necessário.',
+    'pt-BR'
+  ),
+  skills: {
+    enabled: true,              // Habilita o gerenciador de skills
+    autoPrompt: true,           // Injeta resumo das skills no System Prompt (<skills_protocol>)
+    allowAutoInstall: true,     // Permite ao agente baixar skills dinamicamente
+    allowExecuteScripts: true,  // Permite executar scripts de skills instaladas
+    trustedOwners: ['vercel-labs', 'anthropics', 'areumtecnologia'], // Allowlist de segurança
+    skillsDirs: ['./.skills'],  // Diretórios locais adicionais para busca
+  }
+});
+
+// Eventos de ciclo de vida de skills
+agent
+  .on(AgentEvents.SKILL_INSTALLED, ({ package, skillName }) => console.log(`[Skills] Instalada: ${skillName || package}`))
+  .on(AgentEvents.SKILL_ACTIVATED, ({ skillName }) => console.log(`[Skills] Ativada na sessão: ${skillName}`))
+  .on(AgentEvents.SKILL_EXECUTION, ({ skillName, scriptName }) => console.log(`[Skills] Script rodando: ${scriptName}`));
+
+const session = agent.createSession('session_dev_01', { name: 'Renan' });
+
+const response = await agent.processMessage(
+  'session_dev_01',
+  'Como otimizar os Server Components e a renderização no Next.js?'
+);
+
+console.log(response.response);
+```
+
+### 🔧 Ferramentas Nativas Disponíveis para o Agente
+
+| Ferramenta | Parâmetros | Descrição |
+|---|---|---|
+| `skills_search` | `{ query: string, owner?: string }` | Pesquisa skills no registro público do `skills.sh` ou nas pastas locais do workspace. |
+| `skills_install` | `{ package: string }` | Instala um pacote do repositório (ex: `vercel-labs/agent-skills@react-best-practices`). |
+| `skills_list` | `{}` | Lista todas as skills atualmente instaladas no projeto com suas versões e contagem de scripts. |
+| `skills_load` | `{ skillName: string }` | Carrega o conteúdo completo do `SKILL.md` (workflows, regras e checklists) para a memória de trabalho da sessão. |
+| `skills_execute_script` | `{ skillName: string, scriptName: string, args?: string[] }` | Executa com segurança um script auxiliar contido na pasta `scripts/` da skill. |
+
+### 📁 Anatomia de uma Skill (`SKILL.md`)
+
+Qualquer pasta dentro de `./.skills/` contendo um arquivo `SKILL.md` é catalogada automaticamente:
+
+```markdown
+---
+name: nextjs-best-practices
+description: Diretrizes de otimização de performance e Server Components para Next.js.
+version: 1.0.0
+author: vercel-labs
+tags: [nextjs, react, performance]
+---
+
+# Next.js Best Practices
+
+## When to Use This Skill
+Use esta skill quando o usuário solicitar desenvolvimento, refatoração ou auditoria de componentes Next.js.
+
+## Rules
+- Prefira React Server Components por padrão.
+- Nunca carregue bibliotecas pesadas de forma síncrona no cliente.
+- Isole interatividade em arquivos com diretiva "use client".
+```
 
 ---
 
@@ -529,6 +619,10 @@ agent
   .on(AgentEvents.HUMAN_HANDOVER, ({ sessionId, reason, priority, briefing }) => console.log(`Transbordo [${priority}]:`, briefing))
   .on(AgentEvents.SESSION_PAUSED, ({ session }) => console.log(`Sessão pausada: ${session.id}`))
   .on(AgentEvents.SESSION_RESUMED, ({ session }) => console.log(`Sessão retomada: ${session.id}`))
+  .on(AgentEvents.SKILL_SEARCHED, ({ query, items }) => console.log('Skills pesquisadas:', items?.length || 0))
+  .on(AgentEvents.SKILL_INSTALLED, ({ package, skillName }) => console.log('Skill instalada:', skillName || package))
+  .on(AgentEvents.SKILL_ACTIVATED, ({ skillName }) => console.log('Skill ativada na sessão:', skillName))
+  .on(AgentEvents.SKILL_EXECUTION, ({ skillName, scriptName }) => console.log('Script executado:', scriptName))
   .on(AgentEvents.SESSION_CREATED, ({ session }) => console.log(`Sessão criada: ${session.id}`))
   .on(AgentEvents.SESSION_UPDATED, ({ session, reason }) => console.log(`Sessão atualizada: ${session.id} (${reason})`))
   .on(AgentEvents.SESSION_EXPIRED, ({ session }) => console.log(`Sessão expirada: ${session.id}`))
@@ -579,6 +673,12 @@ agentic-core/
 │   │   ├── index.js                      # Exportações do módulo SLM
 │   │   ├── IntentRouter.js               # Heurísticas e tool pruning bilíngue PT/EN
 │   │   └── OutputSanitizer.js            # Sanitização de loops e unboxing limpo de tools
+│   ├── skills/                           # Ecossistema Open Agent Skills (npx skills)
+│   │   ├── index.js                      # Exportações do módulo de skills
+│   │   ├── SkillsCliWrapper.js           # Interface assíncrona segura com o CLI npx skills
+│   │   ├── SkillsLoader.js               # Parser de SKILL.md (YAML Frontmatter + Markdown)
+│   │   ├── SkillsManager.js              # Ciclo de vida, busca, cache e script runner
+│   │   └── SkillsTools.js                # Ferramentas nativas do agente (search, install, load, execute)
 │   ├── streaming/                        # Streaming em tempo real (TokenStream)
 │   ├── telemetry/                        # Observabilidade e tracing (TelemetryProvider)
 │   ├── tools/                            # Sistema de ferramentas embutidas
@@ -602,6 +702,9 @@ agentic-core/
 │   ├── platform/                         # Multi-tenancy (PlatformManager)
 │   └── providers/                        # Providers (Google, OpenAI, Anthropic, Ollama, Nvidia)
 ├── tests/
+│   ├── test_skills_agent_flow.js         # Validação end-to-end do loop agentic com skills
+│   ├── test_skills_parser.js             # Validação de parsing de SKILL.md e YAML frontmatter
+│   ├── test_skills_cli_mock.js           # Validação do wrapper CLI e políticas de segurança
 │   ├── test_next_level_v34.js            # Validação do SLM Engine, State Store e Handover v3.4
 │   ├── test_code_review_fixes.js         # Validação de correções da revisão de código
 │   ├── test_ten_each.js                  # Bateria de 30 testes de ferramentas nativas (100% de aprovação)
@@ -621,6 +724,9 @@ agentic-core/
 ```bash
 # Executar suíte padrão completa
 npm test
+
+# Executar suíte de testes do ecossistema de skills (npx skills)
+npm run test:skills
 
 # Executar suíte de novidades da v3.4.0 (SLM, Handover, State Store)
 node tests/test_next_level_v34.js

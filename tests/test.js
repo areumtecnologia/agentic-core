@@ -28,7 +28,7 @@ const axios = require('axios');
 // IHA089/drana-infinity-0.5b:0.5b qwen2.5:0.5b qwen3:0.6b qwen2.5-coder:0.5b qwen3.5:0.8b minicpm-v4.6:latest LiquidAI/lfm2.5-350m:latest LiquidAI/lfm2.5-1.2b-instruct:latest
 async function example() {
   const customerAgent = new AgenticCore({
-    apiKey: "AIzaSyAb783iJHsIkuCLKvDS_KD9eMz9ol7Hqhs",
+    apiKey: GOOGLE_GEMINI_API_KEY,
     model: ['gemma-4-26b-a4b-it', 'gemma-4-31b-it'],
     // provider: new OllamaProvider({
     //   apiKey: NVIDIA_API_KEY,

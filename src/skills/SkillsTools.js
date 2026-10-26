@@ -177,6 +177,101 @@ function registerSkillsTools(agent, skillsManager, options = {}) {
             }
         });
     }
+
+    // ── 6. skills_create (se permitido) ──────────────────────────────────────
+    if (options.allowCreate !== false) {
+        agent.registerTool({
+            name: 'skills_create',
+            description: 'Create and save a new local skill with custom workflows, guidelines, rules, and optional scripts.',
+            parameters: {
+                type: Type.OBJECT,
+                properties: {
+                    name: {
+                        type: Type.STRING,
+                        description: 'Unique kebab-case name of the skill (e.g. "aws-deploy-checklist")',
+                    },
+                    description: {
+                        type: Type.STRING,
+                        description: 'Concise 1-sentence description of what this skill does',
+                    },
+                    workflow: {
+                        type: Type.STRING,
+                        description: 'Step-by-step instructions and guidelines',
+                    },
+                    rules: {
+                        type: Type.ARRAY,
+                        description: 'List of mandatory rules/constraints for this skill',
+                    },
+                    tags: {
+                        type: Type.ARRAY,
+                        description: 'Optional keywords/tags for search discovery',
+                    },
+                    scripts: {
+                        type: Type.OBJECT,
+                        description: 'Optional map of filename -> code content for scripts/ directory',
+                    },
+                },
+                required: ['name', 'description', 'workflow'],
+            },
+        }, async (args) => {
+            try {
+                const res = await skillsManager.createSkill(args);
+                return {
+                    success: true,
+                    skillName: res.name,
+                    message: `Skill "${res.name}" created and indexed successfully. You can load it anytime with skills_load({ skillName: "${res.name}" }).`,
+                };
+            } catch (err) {
+                return {
+                    success: false,
+                    error: err.message,
+                };
+            }
+        });
+    }
+
+    // ── 7. skills_analytics ──────────────────────────────────────────────────
+    agent.registerTool({
+        name: 'skills_analytics',
+        description: 'Inspect skill efficiency telemetry, execution latency, success rates, token usage, and generate an impact analytics report.',
+        parameters: {
+            type: Type.OBJECT,
+            properties: {
+                skillName: {
+                    type: Type.STRING,
+                    description: 'Optional name of a specific skill to filter metrics',
+                },
+                format: {
+                    type: Type.STRING,
+                    description: 'Output format: "markdown" (default, formatted table), "summary" (concise), "json", or "object"',
+                },
+                reset: {
+                    type: Type.BOOLEAN,
+                    description: 'Optional flag to reset telemetry metrics',
+                },
+            },
+        },
+    }, async (args) => {
+        const skillName = args?.skillName;
+        const format = args?.format || 'markdown';
+        const shouldReset = Boolean(args?.reset);
+
+        if (shouldReset) {
+            skillsManager.analytics.reset(skillName || null);
+            return {
+                success: true,
+                message: skillName
+                    ? `Telemetry metrics for skill "${skillName}" have been reset.`
+                    : 'All skill telemetry metrics have been reset.',
+            };
+        }
+
+        const report = skillsManager.generateImpactReport({ format, skillName });
+        if (typeof report === 'string') {
+            return { report, format };
+        }
+        return report;
+    });
 }
 
 module.exports = { registerSkillsTools };

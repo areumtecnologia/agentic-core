@@ -30,6 +30,7 @@ const {
     OllamaProvider,
     AnthropicProvider,
     NvidiaProvider,
+    ThinkingStreamParser,
 } = require('./providers');
 const {
     MemoryStore,
@@ -72,6 +73,8 @@ const {
     SkillsLoader,
     SkillsManager,
     registerSkillsTools,
+    SkillSubAgent,
+    SkillImpactAnalytics,
 } = require('./skills');
 
 module.exports = {
@@ -89,6 +92,7 @@ module.exports = {
     OllamaProvider,
     AnthropicProvider,
     NvidiaProvider,
+    ThinkingStreamParser,
     AgentSession,
     AgentSessionEvents,
     McpManager,
@@ -145,4 +149,6 @@ module.exports = {
     SkillsLoader,
     SkillsManager,
     registerSkillsTools,
+    SkillSubAgent,
+    SkillImpactAnalytics,
 };

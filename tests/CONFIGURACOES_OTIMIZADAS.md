@@ -130,6 +130,25 @@ new AgenticCore({
 })
 ```
 
+### Para Tarefas Analíticas e Raciocínio (Thinking Ativo) 🧠
+```javascript
+// qwen3:0.6b - Melhor modelo < 1B para Chain-of-Thought (1.7s latência)
+new AgenticCore({
+  provider: new OllamaProvider({
+    model: 'qwen3:0.6b',
+    thinking: {
+      mode: 'auto',       // IntentRouter ativa apenas quando há raciocínio necessário
+      language: 'pt-BR'   // 'pt-BR' ou 'en'
+    }
+  }),
+  temperature: 0.4,
+  topP: 0.92,
+  maxOutputTokens: 768,
+  maxAgenticLoopTurns: 6,
+  turnTimeoutMs: 60000
+})
+```
+
 ## Parâmetros Críticos para Modelos < 1GB
 
 1. **temperature**: 0.3-0.6 (menor que modelos grandes)

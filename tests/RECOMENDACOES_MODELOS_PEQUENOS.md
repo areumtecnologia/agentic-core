@@ -44,6 +44,26 @@ Com base no `ollama ls`, os modelos menores que 1GB são:
 - Tool calling estável
 - **Mais consistente entre configs**
 
+### 5. Melhor para Raciocínio Dedutivo (Thinking) 🧠
+**`qwen3:0.6b` (522 MB)**
+- **Campeão de Thinking < 1B**: Latência de apenas **1.7s** gerando mais de 1.500 caracteres de dedução analítica contínua.
+- Separa o monólogo interno do texto final de forma impecável.
+- Emite eventos de `AgentEvents.REASONING_CHUNK` em tempo real.
+- **Recomendado para problemas lógicos, matemáticos ou análise de regras**.
+
+## Benchmark de Raciocínio (Thinking Emulado no Ollama)
+
+Resultados com o `OllamaProvider` e `thinking: true` para a charada: *"Em uma sala há 3 gatos. Cada gato vê 2 gatos. Quantos gatos há na sala no total? Pense passo a passo antes de responder."*
+
+| Modelo | Tamanho | Latência | Raciocínio Capturado? | Volume Thinking | Avaliação |
+| :--- | :---: | :---: | :---: | :---: | :--- |
+| **`qwen3:0.6b`** 🏆 | **522 MB** | **1.7s** | **Sim (100%)** | **1.512 chars** | **Excelente**. Raciocínio formal estruturado em monólogo interno. |
+| **`qwen2.5-coder:0.5b`** | 397 MB | 8.6s | **Sim** | 362 chars | Planeja premissas e análise antes da resposta. |
+| **`qwen3.5:0.8b`** | 1.0 GB | 86.0s | **Sim** | 1.387 chars | Excelente dedução (*Thinking Process*), mas penalizado pelo contexto padrão de 256k. |
+| **`LiquidAI/lfm2.5-350m`** | 379 MB | 0.5s | Não (Direto) | 0 | Ultra rápido, respondeu direto com passos no corpo do texto. |
+| **`qwen2.5:0.5b`** | 397 MB | 0.7s | Não (Direto) | 0 | Respondeu diretamente enumerando as etapas no texto final. |
+| **`functiongemma:latest`** | 300 MB | 3.5s | Parcial | 3 chars | Especialista em tools, não executa monólogo em linguagem natural. |
+
 ## Parâmetros Otimizados para Modelos < 1B
 
 Baseado nos testes, os parâmetros que maximizam performance:
@@ -95,11 +115,17 @@ new AgenticCore({
 })
 ```
 
-### Para `qwen3:0.6b`
+### Para `qwen3:0.6b` (com Raciocínio / Thinking Ativo)
 ```javascript
 new AgenticCore({
-  provider: new OllamaProvider({ model: 'qwen3:0.6b' }),
-  temperature: 0.6,
+  provider: new OllamaProvider({
+    model: 'qwen3:0.6b',
+    thinking: {
+      mode: 'auto',       // Ativa raciocínio dinamicamente pelo IntentRouter
+      language: 'pt-BR',  // 'pt-BR' ou 'en'
+    }
+  }),
+  temperature: 0.4,
   topP: 0.92,
   maxOutputTokens: 768,
   maxAgenticLoopTurns: 6

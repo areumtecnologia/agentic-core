@@ -2,6 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 
 /**
  * SkillsLoader
@@ -98,6 +99,7 @@ class SkillsLoader {
             references,
             examples,
             resources,
+            hash: SkillsLoader.computeSkillHash(skillDirPath),
             loadedAt: new Date().toISOString(),
         };
     }
@@ -158,6 +160,116 @@ class SkillsLoader {
         const scriptsCount = skill.scripts ? skill.scripts.length : 0;
         const scriptNote = scriptsCount > 0 ? ` (${scriptsCount} script${scriptsCount > 1 ? 's' : ''} available)` : '';
         return `- **${name}**: ${desc}${scriptNote}`;
+    }
+
+    /**
+     * Calcula o hash SHA-256 de um arquivo.
+     * @param {string} filePath
+     * @returns {string|null}
+     */
+    static computeFileHash(filePath) {
+        if (!filePath || !fs.existsSync(filePath)) return null;
+        try {
+            const buffer = fs.readFileSync(filePath);
+            return crypto.createHash('sha256').update(buffer).digest('hex');
+        } catch (_) {
+            return null;
+        }
+    }
+
+    /**
+     * Calcula um hash SHA-256 determinístico para uma skill (SKILL.md + scripts auxiliares).
+     * @param {string} skillDirPath
+     * @returns {string|null}
+     */
+    static computeSkillHash(skillDirPath) {
+        if (!skillDirPath || !fs.existsSync(skillDirPath)) return null;
+        const skillMdPath = path.join(skillDirPath, 'SKILL.md');
+        if (!fs.existsSync(skillMdPath)) return null;
+
+        try {
+            const hasher = crypto.createHash('sha256');
+            const mdContent = fs.readFileSync(skillMdPath, 'utf8').replace(/\r\n/g, '\n');
+            hasher.update('SKILL.md:' + mdContent);
+
+            const scripts = SkillsLoader._discoverScripts(skillDirPath);
+            scripts.sort((a, b) => a.filename.localeCompare(b.filename));
+
+            for (const s of scripts) {
+                if (fs.existsSync(s.path)) {
+                    const sContent = fs.readFileSync(s.path, 'utf8').replace(/\r\n/g, '\n');
+                    hasher.update(`:scripts/${s.filename}:` + sContent);
+                }
+            }
+
+            return hasher.digest('hex');
+        } catch (_) {
+            return null;
+        }
+    }
+
+    /**
+     * Gera o conteúdo Markdown formatado com YAML Frontmatter para um novo arquivo SKILL.md.
+     * @param {object} options
+     * @param {string} options.name
+     * @param {string} options.description
+     * @param {string} [options.version='1.0.0']
+     * @param {string} [options.author='agent']
+     * @param {string[]} [options.tags=[]]
+     * @param {string} [options.workflow='']
+     * @param {string[]} [options.rules=[]]
+     * @param {Record<string, string>} [options.customSections={}]
+     * @returns {string}
+     */
+    static generateSkillMarkdown({
+        name,
+        description,
+        version = '1.0.0',
+        author = 'agent',
+        tags = [],
+        workflow = '',
+        rules = [],
+        customSections = {},
+    }) {
+        const cleanName = String(name || 'custom-skill').trim().toLowerCase().replace(/[^a-z0-9-_]/g, '-');
+        const cleanDesc = String(description || '').trim();
+        const formattedTags = tags.length > 0 ? `tags: [${tags.map(t => String(t).trim()).filter(Boolean).join(', ')}]` : 'tags: []';
+
+        const lines = [
+            '---',
+            `name: ${cleanName}`,
+            `description: ${cleanDesc}`,
+            `version: ${version}`,
+            `author: ${author}`,
+            formattedTags,
+            '---',
+            '',
+            `# ${cleanName.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')}`,
+            '',
+            cleanDesc,
+            '',
+            '## When to Use This Skill',
+            `Use esta skill sempre que a tarefa envolver diretrizes ou fluxos de ${cleanName.replace(/-/g, ' ')}.`,
+            '',
+        ];
+
+        if (workflow) {
+            lines.push('## Workflow', workflow.trim(), '');
+        }
+
+        if (rules && rules.length > 0) {
+            lines.push('## Rules');
+            for (const r of rules) {
+                lines.push(`- ${String(r).trim()}`);
+            }
+            lines.push('');
+        }
+
+        for (const [title, content] of Object.entries(customSections)) {
+            lines.push(`## ${title}`, String(content).trim(), '');
+        }
+
+        return lines.join('\n');
     }
 
     /**

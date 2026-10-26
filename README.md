@@ -213,6 +213,51 @@ O `AgenticCore` conta com roteamento inteligente de intenção e parser resilien
   - 🌐 Pesquisa na Web: **10/10 (100% de sucesso)**
   - **Total Geral: 30/30 (100% de aprovação)**
 
+### 🧠 Raciocínio (Thinking) para Modelos sem Suporte Nativo no Ollama
+
+Modelos menores ou padrão no Ollama (como `llama3.2`, `mistral`, `gemma2`, `phi3/4` e `qwen2.5` não-R1) não geram deltas nativos de raciocínio. O `OllamaProvider` agora conta com emulação de raciocínio e streaming estruturado com **state machine de tags `<think>...</think>`**:
+
+```javascript
+const { OllamaProvider, AgenticCore } = require('@areumtecnologia/agentic-core');
+
+// 1. Ativação contínua (always)
+const provider = new OllamaProvider({
+  model: 'llama3.2:1b',
+  thinking: true, // ou emulateThinking: true
+});
+
+// 2. Ou ativação inteligente sob demanda (apenas quando a pergunta requer lógica/dedução)
+const smartProvider = new OllamaProvider({
+  model: 'llama3.2:3b',
+  thinking: {
+    mode: 'auto',       // IntentRouter ativa apenas quando há raciocínio necessário
+    language: 'pt-BR',  // 'pt-BR' ou 'en'
+  }
+});
+
+// 3. Durante o streaming, o agente emite eventos de pensamento em tempo real
+agent.on(AgentEvents.REASONING_CHUNK, ({ thought }) => {
+  process.stdout.write(`[Pensamento]: ${thought}\n`);
+});
+```
+
+- **Streaming Sem Ruído**: Tags `<think>` e `</think>` fracionadas entre pacotes de rede são capturadas pelo `ThinkingStreamParser` e despachadas exclusivamente como `{ type: 'thought' }`.
+- **Resposta Final Limpa**: O bloco de pensamento é automaticamente extraído e higienizado, mantendo a resposta do usuário livre de poluição e salvando os passos nas `parts` do candidato.
+- **Tolerância a Falhas**: Tags não fechadas por esgotamento de tokens são recuperadas graciosamente, e chamadas de ferramenta executadas após o bloco `</think>` são reparadas automaticamente.
+
+#### 📊 Benchmark Comparativo de Modelos < 1B (Ollama Local)
+
+Testado com o prompt analítico: *"Em uma sala há 3 gatos. Cada gato vê 2 gatos. Quantos gatos há na sala no total? Pense passo a passo antes de responder."*
+
+| Modelo | Tamanho | Latência | Raciocínio Capturado? | Volume Thinking | Destaque |
+| :--- | :---: | :---: | :---: | :---: | :--- |
+| **`qwen3:0.6b`** 🏆 | **522 MB** | **1.7s** | **Sim (100%)** | **1.512 chars** | **Campeão Geral**. Monólogo interno analítico profundo com latência ultra-baixa. |
+| **`qwen2.5-coder:0.5b`** | 397 MB | 8.6s | **Sim** | 362 chars | Planejamento dedutivo de premissas antes de emitir a resposta. |
+| **`qwen3.5:0.8b`** | 1.0 GB | 86.0s | **Sim** | 1.387 chars | Raciocínio CoT detalhado (*Thinking Process*). |
+| **`LiquidAI/lfm2.5-350m`** | 379 MB | 0.5s | Não (Direto) | 0 | Responde imediatamente em passos numerados no corpo do texto. |
+| **`qwen2.5:0.5b`** | 397 MB | 0.7s | Não (Direto) | 0 | Responde diretamente enumerando as etapas no texto final. |
+| **`functiongemma:latest`** | 300 MB | 3.5s | Parcial | 3 chars | Especialista em tool calling (não recomendado para CoT abstrato). |
+
 ---
 
 ## 🧩 Ecossistema Open Agent Skills (`npx skills` & skills.sh)
@@ -277,6 +322,8 @@ console.log(response.response);
 | `skills_list` | `{}` | Lista todas as skills atualmente instaladas no projeto com suas versões e contagem de scripts. |
 | `skills_load` | `{ skillName: string }` | Carrega o conteúdo completo do `SKILL.md` (workflows, regras e checklists) para a memória de trabalho da sessão. |
 | `skills_execute_script` | `{ skillName: string, scriptName: string, args?: string[] }` | Executa com segurança um script auxiliar contido na pasta `scripts/` da skill. |
+| `skills_create` | `{ name: string, description: string, workflow: string, rules?: string[], scripts?: object }` | Cria dinamicamente uma nova skill local com workflows, regras e scripts (*Self-Learning*). |
+| `skills_analytics` | `{ skillName?: string, format?: string, reset?: boolean }` | Inspeciona a telemetria, latência de scripts, taxa de sucesso, consumo de tokens e eficiência por skill. |
 
 ### 📁 Anatomia de uma Skill (`SKILL.md`)
 
@@ -678,7 +725,9 @@ agentic-core/
 │   │   ├── SkillsCliWrapper.js           # Interface assíncrona segura com o CLI npx skills
 │   │   ├── SkillsLoader.js               # Parser de SKILL.md (YAML Frontmatter + Markdown)
 │   │   ├── SkillsManager.js              # Ciclo de vida, busca, cache e script runner
-│   │   └── SkillsTools.js                # Ferramentas nativas do agente (search, install, load, execute)
+│   │   ├── SkillsTools.js                # Ferramentas nativas do agente (search, install, load, execute, analytics)
+│   │   ├── SkillSubAgent.js              # Sub-agente especialista ancorado em diretrizes de skill
+│   │   └── SkillImpactAnalytics.js       # Telemetria, latência de scripts, tokens e scoring de eficiência
 │   ├── streaming/                        # Streaming em tempo real (TokenStream)
 │   ├── telemetry/                        # Observabilidade e tracing (TelemetryProvider)
 │   ├── tools/                            # Sistema de ferramentas embutidas
@@ -705,6 +754,8 @@ agentic-core/
 │   ├── test_skills_agent_flow.js         # Validação end-to-end do loop agentic com skills
 │   ├── test_skills_parser.js             # Validação de parsing de SKILL.md e YAML frontmatter
 │   ├── test_skills_cli_mock.js           # Validação do wrapper CLI e políticas de segurança
+│   ├── test_skills_advanced.js           # Validação de SHA-256 lockfile, skills_create, Turn 0 e SubAgentes
+│   ├── test_skills_telemetry.js          # Validação de telemetria, scoring de eficiência e impact analytics
 │   ├── test_next_level_v34.js            # Validação do SLM Engine, State Store e Handover v3.4
 │   ├── test_code_review_fixes.js         # Validação de correções da revisão de código
 │   ├── test_ten_each.js                  # Bateria de 30 testes de ferramentas nativas (100% de aprovação)

@@ -512,6 +512,12 @@ class AgenticCore extends EventEmitter {
             this.#skillsManager.on('activated', (data) => {
                 this.emit(AgentEvents.SKILL_ACTIVATED, data);
             });
+            this.#skillsManager.on('execution', (data) => {
+                this.emit(AgentEvents.SKILL_EXECUTION, data);
+            });
+            this.#skillsManager.on('telemetry', (data) => {
+                this.emit(AgentEvents.SKILL_TELEMETRY, data);
+            });
 
             // Registra as tools nativas de skills no agente
             registerSkillsTools(this, this.#skillsManager, this.#skillsOptions);
@@ -1059,6 +1065,33 @@ class AgenticCore extends EventEmitter {
                 augmentedContext = await this.#contextAugmenter.retrieveContext(session, message);
             } catch (err) {
                 this.emit(AgentEvents.ERROR, { error: err, source: 'context_augmenter', session: session.toJSON() });
+            }
+        }
+
+        // ── Auto-Ativação Heurística de Skills no Turno 0 ──
+        if (this.#skillsManager && this.#skillsOptions?.autoActivate !== false && !isSystemTrigger) {
+            const userText = this.#extractUserText(message);
+            const match = this.#skillsManager.matchSkill(userText);
+            if (match && match.skill) {
+                const skillInstructions = this.#skillsManager.loadSkillInstructions(match.skill.name);
+                if (skillInstructions && skillInstructions.found) {
+                    const skillContext = `[Pre-Activated Skill Guidelines: ${match.skill.name}]\n` +
+                        `Description: ${skillInstructions.description}\n` +
+                        `Workflow:\n${skillInstructions.instructions}\n`;
+                    augmentedContext = augmentedContext ? `${augmentedContext}\n\n${skillContext}` : skillContext;
+                    this.#skillsManager.analytics?.recordActivation({
+                        skillName: match.skill.name,
+                        type: 'pre_turn_auto',
+                        score: match.score,
+                        sessionId: session.id,
+                    });
+                    this.emit(AgentEvents.SKILL_ACTIVATED, {
+                        skillName: match.skill.name,
+                        preActivated: true,
+                        score: match.score,
+                        session: session.toJSON(),
+                    });
+                }
             }
         }
 
@@ -2661,6 +2694,26 @@ ${this.#skillsManager.getPromptSummary()}
 
     /** @returns {SkillsManager|null} */
     get skillsManager() { return this.#skillsManager; }
+
+    /**
+     * Cria e instancia um SubAgent especializado ancorado nas diretrizes de uma skill.
+     * @param {string} skillName Nome da skill instalada
+     * @param {object} [options] Opções do subagente ({ name, tools, context })
+     * @returns {SkillSubAgent}
+     */
+    spawnSkillSubAgent(skillName, options = {}) {
+        const { SkillSubAgent } = require('./skills/SkillSubAgent');
+        return new SkillSubAgent({ parent: this, skillName, ...options });
+    }
+
+    /**
+     * Retorna relatório de métricas e eficiência das skills.
+     * @param {object} [options]
+     * @returns {string|object|null}
+     */
+    getSkillAnalytics(options = {}) {
+        return this.#skillsManager ? this.#skillsManager.generateImpactReport(options) : null;
+    }
 }
 
 module.exports = { AgenticCore };

@@ -1,7 +1,6 @@
 'use strict';
 
 const EventEmitter = require('events');
-const { AgenticCore } = require('./AgenticCore');
 const { AgentConfig } = require('./AgentConfig');
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -40,7 +39,7 @@ class SubAgent extends EventEmitter {
      */
     constructor({ parent, config, name, tools = [], context = {} }) {
         super();
-        if (!parent || !(parent instanceof AgenticCore)) {
+        if (!parent || typeof parent.processMessage !== 'function' || typeof parent.createSession !== 'function') {
             throw new TypeError('[SubAgent] parent must be an instance of AgenticCore.');
         }
         if (!config || (!(config instanceof AgentConfig) && (typeof config !== 'object' || !config.name))) {

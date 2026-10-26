@@ -34,6 +34,8 @@ const AgentEvents = Object.freeze({
     SKILL_INSTALLED: 'skill_installed',             // Nova skill instalada
     SKILL_ACTIVATED: 'skill_activated',             // Instruções de skill carregadas na sessão
     SKILL_EXECUTION: 'skill_execution',             // Script de skill executado
+    SKILL_TELEMETRY: 'skill_telemetry',             // Telemetria e métricas de impacto de skills registradas
+    SKILL_REPORT_GENERATED: 'skill_report_generated', // Relatório de eficiência de skills gerado
 });
 
 module.exports = { AgentEvents };

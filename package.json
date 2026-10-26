@@ -22,8 +22,8 @@
     "autonomous"
   ],
   "scripts": {
-    "test": "node tests/test_code_review_fixes.js && node tests/test_next_level_v34.js && node tests/test_evolution_v33.js && node tests/test_reasoning_tool.js && node tests/test_math_tool.js && node tests/test_web_search_tool.js && node tests/test_skills_parser.js && node tests/test_skills_cli_mock.js && node tests/test_skills_agent_flow.js",
-    "test:skills": "node tests/test_skills_parser.js && node tests/test_skills_cli_mock.js && node tests/test_skills_agent_flow.js",
+    "test": "node tests/test_code_review_fixes.js && node tests/test_next_level_v34.js && node tests/test_evolution_v33.js && node tests/test_reasoning_tool.js && node tests/test_math_tool.js && node tests/test_web_search_tool.js && node tests/test_skills_parser.js && node tests/test_skills_cli_mock.js && node tests/test_skills_agent_flow.js && node tests/test_skills_advanced.js && node tests/test_skills_telemetry.js",
+    "test:skills": "node tests/test_skills_parser.js && node tests/test_skills_cli_mock.js && node tests/test_skills_agent_flow.js && node tests/test_skills_advanced.js && node tests/test_skills_telemetry.js",
     "test:evolution": "node tests/test_evolution_v33.js",
     "test:reasoning": "node tests/test_reasoning_tool.js",
     "test:math": "node tests/test_math_tool.js",

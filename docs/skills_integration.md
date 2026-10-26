@@ -114,6 +114,108 @@ Executa um script de suporte contido na pasta `scripts/` da skill (ex: scripts e
   - `scriptName` (*string*, obrigatório): Nome do arquivo ou identificador do script.
   - `args` (*array de strings*, opcional): Argumentos passados via linha de comando.
 
+### 6. `skills_create` (Novo)
+Permite ao agente sintetizar e salvar novas skills locais dinamicamente (*Self-Learning*).
+- **Parâmetros**:
+  - `name` (*string*, obrigatório): Nome único da skill em kebab-case (ex: `"aws-deploy-checklist"`).
+  - `description` (*string*, obrigatório): Resumo conciso de 1 frase.
+  - `workflow` (*string*, obrigatório): Instruções passo a passo e diretrizes.
+  - `rules` (*array de strings*, opcional): Lista de restrições ou regras obrigatórias.
+  - `tags` (*array de strings*, opcional): Tags para busca e descoberta heurística.
+  - `scripts` (*objeto*, opcional): Mapa de `filename -> code` para scripts auxiliares na pasta `scripts/`.
+
+### 7. `skills_analytics` (Novo)
+Permite inspecionar a telemetria em tempo real, latência de scripts, taxa de sucesso, consumo de tokens e eficiência por skill.
+- **Parâmetros**:
+  - `skillName` (*string*, opcional): Nome específico para filtrar métricas.
+  - `format` (*string*, opcional): `"markdown"` (tabela formatada), `"summary"` (conciso), `"json"`, ou `"object"`.
+  - `reset` (*boolean*, opcional): Se deve zerar os contadores de métricas.
+
+---
+
+## 🚀 Evoluções Avançadas
+
+### 1. 🔒 Integridade Criptográfica & Lockfile (`skills-lock.json`)
+
+Para prevenir adulterações maliciosas em ambientes corporativos, o `SkillsManager` suporta verificação de integridade via hash **SHA-256**:
+- Toda skill instalada ou criada tem seu hash determinístico calculado e registrado no `skills-lock.json`.
+- Com `verifyIntegrity: true`, o `loadSkillInstructions` e o `executeScript` validam o hash em tempo real antes de qualquer execução:
+
+```javascript
+const agent = new AgenticCore({
+  skills: {
+    enabled: true,
+    verifyIntegrity: true, // Bloqueia skills cujos arquivos foram modificados externamente
+    lockfilePath: './skills-lock.json',
+  }
+});
+```
+
+### 2. ⚡ Auto-Ativação Heurística no Turno 0 (*Pre-Turn Skill Activation*)
+
+Evite o desperdício de rodadas extras do LLM! Com `autoActivate: true` (padrão):
+- O `SkillsManager` analisa a mensagem do usuário no **Turno 0**.
+- Caso a mensagem corresponda a uma skill (por nome, tags ou intenção), as diretrizes da skill são **pré-injetadas no contexto** antes da primeira geração do modelo.
+- O evento `AgentEvents.SKILL_ACTIVATED` é emitido com a flag `{ preActivated: true }`.
+
+### 3. 👥 SubAgentes Especializados Baseados em Skills (`SkillSubAgent`)
+
+Isole o processamento de regras complexas em um subagente dedicado sem poluir a sessão principal:
+
+```javascript
+// Instancia um especialista ancorado estritamente nas regras da skill
+const reviewer = agent.spawnSkillSubAgent('security-audit', {
+  name: 'SecuritySpecialist'
+});
+
+// Executa em uma sessão efêmera isolada
+const report = await reviewer.execute('Auditar módulo de login e geração de tokens JWT');
+console.log(report.output);
+```
+
+### 4. 🧬 Aprendizado e Criação Autônoma de Skills (`createSkill`)
+
+O agente pode aprender novos procedimentos consolidados e gravá-los no disco:
+
+```javascript
+await agent.skillsManager.createSkill({
+  name: 'homologacao-checklist',
+  description: 'Procedimento padronizado de validação de PRs para homologação.',
+  workflow: '1. Verificar cobertura de testes\n2. Executar migrações em banco de staging\n3. Validar healthcheck',
+  rules: ['Proibido merge sem aprovação de 2 revisores'],
+  tags: ['homologacao', 'deploy', 'git'],
+  scripts: {
+    'verify_env.js': 'console.log(JSON.stringify({ status: "ready" }));'
+  }
+});
+```
+
+### 5. 📊 Telemetria de Eficiência de Skills (Skill Impact Analytics)
+
+O módulo `SkillImpactAnalytics` monitora a eficiência operacional de cada skill:
+- **Ativações**: discriminação entre ativação heurística (Turno 0), chamadas explícitas via `skills_load` e execuções via `SkillSubAgent`.
+- **Scripts Auxiliares**: contagem de execuções, taxa de sucesso (%), latência mínima, máxima e média (`avgDurationMs`).
+- **Consumo de Tokens e Turnos**: tokens de prompt, completion e total atribuídos a turnos onde as skills estavam ativas.
+- **Score de Eficiência (0-100)**: pontuação calculada dinamicamente combinando taxa de sucesso, latência e estabilidade.
+
+#### Obtenção de Relatórios
+
+```javascript
+// Via API direta do AgenticCore
+const reportMarkdown = agent.getSkillAnalytics({ format: 'markdown' });
+console.log(reportMarkdown);
+
+// Ou via objeto estruturado para dashboards
+const reportData = agent.getSkillAnalytics({ format: 'object' });
+```
+
+Exemplo de matriz de eficiência gerada:
+
+| Skill Name | Activations (Auto / Load / SubAgent) | Scripts Executed (Success %) | Avg Latency | Tokens | Efficiency Score |
+| :--- | :---: | :---: | :---: | :---: | :---: |
+| `docker-optimizer` | 4 (2 / 1 / 1) | 3 (100%) | 42.5 ms | 1,200 | 🟢 100/100 |
+| `security-audit` | 6 (4 / 1 / 1) | 5 (100%) | 18.2 ms | 2,450 | 🟢 98/100 |
+
 ---
 
 ## 📁 Especificação do `SKILL.md`
@@ -185,8 +287,13 @@ agent
   })
 
   // Emitido na execução de scripts de automação
-  .on(AgentEvents.SKILL_EXECUTION, ({ skillName, scriptName }) => {
-    console.log(`[Skills] Executando script: ${skillName} -> ${scriptName}`);
+  .on(AgentEvents.SKILL_EXECUTION, ({ skillName, scriptName, durationMs, success }) => {
+    console.log(`[Skills] Execução: ${skillName} -> ${scriptName} (${durationMs}ms, success: ${success})`);
+  })
+
+  // Emitido sempre que métricas de telemetria de skills são gravadas
+  .on(AgentEvents.SKILL_TELEMETRY, ({ eventType, skillName, record }) => {
+    console.log(`[Telemetry] Skill "${skillName}" event: ${eventType}`);
   });
 ```
 

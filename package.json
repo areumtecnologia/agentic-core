@@ -1,6 +1,6 @@
 {
   "name": "@areumtecnologia/agentic-core",
-  "version": "3.4.0",
+  "version": "3.6.0",
   "description": "Framework profissional para orquestração de Agentes Autônomos em Node.js com suporte multi-provedor (Gemini, OpenAI, Anthropic, Ollama, Nvidia), streaming em tempo real, auto-RAG de memória, políticas de segurança, failover automático e telemetria nativa.",
   "license": "ISC",
   "author": "Áreum Tecnologia",
@@ -22,8 +22,15 @@
     "autonomous"
   ],
   "scripts": {
-    "test": "node tests/test_code_review_fixes.js && node tests/test_next_level_v34.js && node tests/test_evolution_v33.js && node tests/test_reasoning_tool.js && node tests/test_math_tool.js && node tests/test_web_search_tool.js && node tests/test_skills_parser.js && node tests/test_skills_cli_mock.js && node tests/test_skills_agent_flow.js && node tests/test_skills_advanced.js && node tests/test_skills_telemetry.js",
+    "test": "node tests/test_code_review_fixes.js && node tests/test_next_level_v34.js && node tests/test_evolution_v33.js && node tests/test_reasoning_tool.js && node tests/test_math_tool.js && node tests/test_web_search_tool.js && node tests/test_skills_parser.js && node tests/test_skills_cli_mock.js && node tests/test_skills_agent_flow.js && node tests/test_skills_advanced.js && node tests/test_skills_telemetry.js && node tests/test_thinking_stream_parser.js && node tests/test_ollama_thinking.js",
     "test:skills": "node tests/test_skills_parser.js && node tests/test_skills_cli_mock.js && node tests/test_skills_agent_flow.js && node tests/test_skills_advanced.js && node tests/test_skills_telemetry.js",
+    "test:voice": "node tests/test_voice_turn_kokoro.js",
+    "test:tts": "node tests/test_tts_response_and_unified_process_message.js",
+    "test:google": "node tests/test_google_tts.js",
+    "test:piper": "node tests/test_piper_tts.js",
+    "test:magpie": "node tests/test_magpie_tts.js",
+    "test:samples": "node tests/test_real_audio_samples.js",
+    "test:thinking": "node tests/test_thinking_stream_parser.js && node tests/test_ollama_thinking.js",
     "test:evolution": "node tests/test_evolution_v33.js",
     "test:reasoning": "node tests/test_reasoning_tool.js",
     "test:math": "node tests/test_math_tool.js",

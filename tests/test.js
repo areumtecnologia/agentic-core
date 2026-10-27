@@ -5,7 +5,7 @@ const IMAGE_BASE64 = process.env.IMAGE_BASE64;
 const AUDIO_BASE64 = process.env.AUDIO_BASE64;
 const VIDEO_BASE64 = process.env.VIDEO_BASE64;
 const NVIDIA_API_KEY = process.env.NVIDIA_API_KEY;
-const { AgenticCore, Type, AgentEvents, AgentConfig, OllamaProvider, NvidiaProvider } = require('../src') //require('@areumtecnologia/autonomouscustomerserviceagent');
+const { AgenticCore, Type, AgentEvents, AgentConfig, OllamaProvider, NvidiaProvider, KokoroTTS, KokoroVoice } = require('../src') //require('@areumtecnologia/autonomouscustomerserviceagent');
 const fs = require('fs');
 const { Readable } = require('stream');
 const { OpenAI } = require('openai');
@@ -33,7 +33,10 @@ async function example() {
     // provider: new OllamaProvider({
     //   apiKey: NVIDIA_API_KEY,
     //   model: "qwen2.5-coder:0.5b",
-    // }),
+    // }),    
+    ttsProvider: new KokoroTTS({
+      voice: KokoroVoice.AF_BELLA
+    }),
     agent: new AgentConfig(
       'Monnalisa',
       'Áreum Tecnologia',
@@ -63,10 +66,11 @@ async function example() {
     .on(AgentEvents.REASONING_CHUNK, ({ thought, step, session }) => {
       console.log('\x1b[36m%s\x1b[0m', `[Reasoning Step ${step || ''}] Sessão ${session?.id}: ${thought}`);
     })
-    .on(AgentEvents.RESPONSE, ({ response, reasoning, session, usageMetadata }) => {
+    .on(AgentEvents.RESPONSE, ({ response, reasoning, session, usageMetadata, ttsResponse }) => {
       console.log(`[Reasoning] Sessão ${session.id}:`, reasoning);
       console.log('\x1b[32m%s\x1b[0m', `[Agente] Sessão ${session.id}:`, response);
       console.log(`[UsageMetadata] Sessão ${session.id}:`, usageMetadata);
+      console.log(`[TTS_RESPOSNE]:`, ttsResponse.toBase64('ogg'));
 
     })
     // .on(AgentEvents.RAW_RESPONSE, ({ rawResponse, session }) => console.log(`[Raw Response] Sessão ${session.id}:`, rawResponse, rawResponse.candidates[0].content.parts))
@@ -135,16 +139,18 @@ async function example() {
     text: "Pense passo a passo: em uma corrida com corredores A, B e C, se B está na frente de C e A está na frente de B, quem venceu a corrida?",
   }, {
     text: "Pesquise na web: 'O que é o AgenticCore da Áreum Tecnologia?'",
-  }, {
-    text: "Finalizar sessão de chat.",
+  },
+  // {
+  //   text: "Finalizar sessão de chat.",
+  // },
+  // {
+  //   text: "O que é isso?",
+  //   attachments: { base64: IMAGE_BASE64, mimeType: 'image/png' }
+  // }, 
+  {
+    text: "Transcreva este áudio:",
+    attachments: { base64: AUDIO_BASE64, mimeType: 'audio/ogg' }
   }
-    // {
-    //   text: "O que é isso?",
-    //   attachments: { base64: IMAGE_BASE64, mimeType: 'image/png' }
-    // }, {
-    //   text: "Transcreva este áudio:",
-    //   attachments: { base64: audioBase64, mimeType: 'audio/wav' }
-    // }
   ];
   // Marcar a hora de inicio do turno e quanto tempo ele durou
   const startTime = Date.now();

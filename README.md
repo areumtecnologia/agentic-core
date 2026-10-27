@@ -1,6 +1,6 @@
 # Agentic Core
 
-> **v3.4.0** — Framework profissional para orquestração de Agentes Autônomos em Node.js com suporte a múltiplos provedores redundantes (Google Gemini, OpenAI, Claude, Ollama, Nvidia), **auto-extensão com o ecossistema Open Agent Skills (`npx skills` / skills.sh)**, **transbordo humano inteligente omnichannel (`escalate_to_human`) com auto-briefing e pausa de sessão**, **SLM Engine modularizado (`IntentRouter` e `OutputSanitizer`) com suporte bilíngue PT/EN**, **persistência distribuída de sessões (`SessionStore`) pluggable e sincronizada**, **ferramentas nativas de raciocínio passo a passo (`reasoningTool`)**, **cálculo determinístico em sandbox segura (`calculatorTool`)**, **pesquisa web gratuita e sem API keys (`webSearchTool`)**, **streaming em tempo real com `TokenStream`**, **auto-RAG de memória com `ContextAugmenter`**, **segurança avançada com `ToolSecurityPolicy`**, **orquestração em DAG condicional**, observabilidade e telemetria com `TelemetryProvider`, suporte nativo ao protocolo MCP e failover automático em falhas 5xx.
+> **v3.6.0** — Framework profissional para orquestração de Agentes Autônomos em Node.js com suporte a múltiplos provedores redundantes (Google Gemini, OpenAI, Claude, Ollama, Nvidia), **envio unificado multimodal via `processMessage` com suporte a áudio, voz e resposta TTS (`ttsResponse`)**, **provedores TTS de primeira classe (`GoogleTTS`, `PiperTTS`, `KokoroTTS`, `MagpieTTS`) e constantes enumeradas sem strings mágicas (`VoiceTypes`)**, **auto-extensão com o ecossistema Open Agent Skills (`npx skills` / skills.sh)**, **transbordo humano inteligente omnichannel (`escalate_to_human`)**, **SLM Engine modularizado (`IntentRouter` e `OutputSanitizer`)**, **persistência distribuída de sessões (`SessionStore`)**, **raciocínio passo a passo (`reasoningTool`)**, **cálculo determinístico em sandbox (`calculatorTool`)**, **pesquisa web gratuita (`webSearchTool`)**, **streaming em tempo real com `TokenStream`**, **auto-RAG de memória**, observabilidade com `TelemetryProvider`, suporte nativo a MCP e failover automático.
 
 ---
 
@@ -8,6 +8,7 @@
 
 | Recurso | Descrição |
 |---|---|
+| **Voz, Áudio & TTS de Primeira Classe (v3.6)** | Envio unificado de texto, áudio e anexos diretamente via `processMessage()`. Geração de objeto `ttsResponse` no evento `AgentEvents.RESPONSE` com `.toBase64(true)` (OGG) e `.toBase64()` (WAV). Provedores flexíveis com herança de `BaseTTSProvider` (`model`, `apiKey`, `url`, `voice`): `GoogleTTS` (nuvem, zero consumo de RAM em servidores de 1 a 4 GB), `PiperTTS` (< 50 MB RAM na CPU), `KokoroTTS` (neural 82M) e `MagpieTTS` (NVIDIA NIM). Constantes e enumeradores tipados (`GoogleVoice`, `KokoroVoice`, `PiperVoice`, `MagpieVoice`, `Voice`, `AudioEncoding`, `AudioFormat`, `AudioMimeType`, `TTSProvider`). |
 | **Open Agent Skills (`npx skills`)** | Suporte nativo ao ecossistema aberto de skills ([skills.sh](https://skills.sh/)). O agente pesquisa (`skills_search`), instala dinamicamente pacotes (`skills_install`), injeta instruções especializadas sob demanda via *lazy loading* (`skills_load`) e executa scripts de automação (`skills_execute_script`) com allowlist de repositórios confiáveis (`trustedOwners`). |
 | **Human-in-the-Loop & Handover (v3.4)** | `handoverTool: true` fornece a ferramenta `escalate_to_human`. Gera briefing executivo automático para atendentes humanos, pausa a sessão (`session.isPaused`), bloqueia consumo desnecessário de tokens do LLM e emite eventos `AgentEvents.HUMAN_HANDOVER`. |
 | **SLM Engine Modularizado (v3.4)** | Arquitetura desacoplada com `IntentRouter` (detecção de intenções e poda dinâmica bilíngue PT-BR/EN-US) e `OutputSanitizer` (eliminação de loops repetitivos em SLMs e extração limpa de resultados sem vazamento de JSON). |
@@ -702,6 +703,182 @@ server.start();
 
 ---
 
+## 🎙️ Áudio, Voz & Síntese Text-to-Speech (STT / TTS) (v3.6)
+
+O **Agentic Core** introduz uma arquitetura de áudio de primeira classe, pensada tanto para produção em nuvem quanto para servidores Linux de baixo custo (**1 a 4 GB de RAM**). Todos os motores de voz implementam o contrato abstrato [`BaseTTSProvider`](file:///k:/Projects/Agentic-Core/src/audio/BaseTTSProvider.js), permitindo injeção transparente, inicialização sob demanda (*lazy-loading*) e eliminação de strings mágicas através de constantes e enumeradores tipados (`Object.freeze`).
+
+### 1. Provedores de TTS Suportados
+
+| Provedor | Classe | Consumo de RAM | Cenário Recomendado | Voz Padrão |
+|---|---|---|---|---|
+| **Google Cloud TTS** | `GoogleTTS` | **0 MB extra** | Servidores de 1 a 4 GB, alta definição neural em nuvem, síntese em ~600ms | `GoogleVoice.PT_BR_NEURAL2_A` |
+| **Piper TTS (ONNX)** | `PiperTTS` | **< 50 MB** | Execução 100% local em Linux/CPU sem GPU, ultra-leve e rápida | `PiperVoice.PT_BR_FABER_MEDIUM` |
+| **Kokoro 82M** | `KokoroTTS` | **~180 MB** | Modelo neural compacto local, compatível com endpoint OpenAI `/v1/audio/speech` | `KokoroVoice.AF_BELLA` |
+| **NVIDIA Magpie** | `MagpieTTS` | GPU dedicada | Contêiner Docker NVIDIA NIM (`localhost:9000`) com Zero-Shot Voice Cloning | `MagpieVoice.ZEROSHOT_MULTILINGUAL_FEMALE` |
+
+---
+
+### 2. Sem Strings Mágicas: Enumeradores de Voz (`VoiceTypes`)
+
+Todas as vozes, formatos e MIME types são expostos como constantes e enums imutáveis:
+
+```javascript
+const {
+  GoogleVoice, // ou Voice.Google
+  KokoroVoice, // ou Voice.Kokoro
+  PiperVoice,  // ou Voice.Piper
+  MagpieVoice, // ou Voice.Magpie
+  Voice,
+  AudioEncoding,
+  AudioFormat,
+  AudioMimeType,
+  TTSProvider
+} = require('@areumtecnologia/agentic-core');
+
+// Exemplo de vozes tipadas disponíveis:
+// Google: GoogleVoice.PT_BR_NEURAL2_A, GoogleVoice.PT_BR_NEURAL2_B, GoogleVoice.PT_BR_WAVENET_A...
+// Kokoro: KokoroVoice.AF_BELLA, KokoroVoice.AM_ADAM, KokoroVoice.PF_DORA...
+// Piper:  PiperVoice.PT_BR_FABER_MEDIUM, PiperVoice.PT_BR_EDRESSON_LOW...
+// Magpie: MagpieVoice.ZEROSHOT_MULTILINGUAL_FEMALE, MagpieVoice.ZEROSHOT_MULTILINGUAL_MALE...
+```
+
+---
+
+### 3. Configurando o `ttsProvider` no `AgenticCore`
+
+Todos os provedores de TTS implementam a mesma interface flexível, aceitando `voice`, `model`, `apiKey` e `url` para permitir apontamento customizado para APIs externas ou contêineres:
+
+| Parâmetro | Tipo | Descrição |
+|---|---|---|
+| `voice` | `string` | Constante ou enumerador da voz (`GoogleVoice`, `PiperVoice`, `KokoroVoice`, etc.) |
+| `model` | `string` | Nome ou identificador do modelo de síntese |
+| `apiKey` | `string` | Chave de API de autenticação para serviços externos (se aplicável) |
+| `url` | `string` | Endpoint customizado da API externa ou micro-serviço (ex: `'https://api.meu-tts.com/v1'`) |
+
+#### Exemplo A — Google Cloud TTS (Ideal para servidores de 1 a 4 GB / Zero RAM extra)
+```javascript
+const {
+  AgenticCore,
+  AgentConfig,
+  NvidiaProvider,
+  GoogleTTS,
+  GoogleVoice,
+  AgentEvents
+} = require('@areumtecnologia/agentic-core');
+
+const agent = new AgenticCore({
+  provider: new NvidiaProvider({
+    apiKey: process.env.NVIDIA_API_KEY,
+    model: 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning' // Transcrição multimodal (STT) + Raciocínio
+  }),
+  ttsProvider: new GoogleTTS({
+    voice: GoogleVoice.PT_BR_NEURAL2_A, // Voz feminina neural em pt-BR
+    model: 'google-cloud-tts',
+    apiKey: process.env.GOOGLE_TTS_API_KEY, // Opcional (usa fallback zero-config se omitida)
+    url: 'https://texttospeech.googleapis.com/v1/text:synthesize' // Customizável
+  }),
+  agent: new AgentConfig(
+    'Monnalisa',
+    'Áreum Tecnologia',
+    'Atendimento',
+    'Assistente de Voz',
+    'Responder com simpatia e clareza.'
+  )
+});
+```
+
+#### Exemplo B — Kokoro 82M com API Externa Customizada
+```javascript
+const { AgenticCore, KokoroTTS, KokoroVoice } = require('@areumtecnologia/agentic-core');
+
+const agent = new AgenticCore({
+  provider: new NvidiaProvider({ ... }),
+  ttsProvider: new KokoroTTS({
+    voice: KokoroVoice.AF_BELLA,
+    model: 'kokoro',
+    url: 'https://meu-servidor-kokoro.com/v1', // Endpoint externo customizado
+    apiKey: 'meu-bearer-token'
+  }),
+  agent: ...
+});
+```
+
+---
+
+### 4. `AgentEvents.RESPONSE` com `ttsResponse` & `.toBase64(true)`
+
+Sempre que houver um `ttsProvider` configurado, a resposta do evento `AgentEvents.RESPONSE` incluirá a variável `ttsResponse`:
+
+```javascript
+agent.on(AgentEvents.RESPONSE, (evt) => {
+  console.log('Texto respondido:', evt.response);
+
+  if (evt.ttsResponse) {
+    // 1. Buffer binário bruto do áudio
+    const rawAudioBuffer = evt.ttsResponse.buffer;
+
+    // 2. Base64 em formato WAV (padrão)
+    const base64Wav = evt.ttsResponse.toBase64(); // ou .toBase64(false)
+
+    // 3. Base64 em formato OGG (passando 'true')
+    const base64Ogg = evt.ttsResponse.toBase64(true);
+
+    // 4. Data URI pronta para uso web/HTML5
+    const dataUri = evt.ttsResponse.toDataUri(true); // data:audio/ogg;base64,...
+  }
+});
+```
+
+---
+
+### 5. Envio Unificado Multimodal via `processMessage` (Texto, Áudio e Imagens)
+
+O método `processMessage` é o ponto de entrada centralizado e único da biblioteca para qualquer modalidade (texto puro, mensagens de áudio, imagens ou documentos), **eliminando a necessidade de métodos separados como `processVoiceTurn`**:
+
+```javascript
+// A. Envio de mensagem de texto simples (com síntese de áudio automática)
+const resText = await agent.processMessage('sessao-1', 'Olá, quais são os horários de atendimento?');
+console.log('Resposta em texto:', resText.response);
+if (resText.ttsResponse) {
+  const oggBase64 = resText.ttsResponse.toBase64(true); // Base64 em OGG
+}
+
+// B. Envio direto de arquivo de áudio recebido do usuário (.ogg, .wav, .mp3)
+const resAudio = await agent.processMessage(
+  'sessao-1',
+  'Transcreva com atenção e responda amigavelmente', // Prompt contextual opcional
+  'caminho/do/audio_usuario.ogg'                     // Caminho direto, Buffer ou { base64, mimeType }
+);
+console.log('Resposta do agente:', resAudio.response);
+const audioParaWhatsApp = resAudio.ttsResponse.toBase64(true); // Pronto para envio em OGG
+
+// C. Envio de imagem ou documento
+const resImage = await agent.processMessage(
+  'sessao-1',
+  'O que você vê nesta imagem?',
+  'caminho/do/comprovante.jpg'
+);
+```
+
+---
+
+### 6. Orquestração Direta com `VoiceGateway`
+
+Caso queira orquestrar síntese e transcrição de forma desacoplada ou independente do loop principal do agente:
+
+```javascript
+const { VoiceGateway, GoogleTTS, GoogleVoice } = require('@areumtecnologia/agentic-core');
+
+const gateway = new VoiceGateway({
+  ttsProvider: new GoogleTTS({ voice: GoogleVoice.PT_BR_NEURAL2_B })
+});
+
+// Síntese direta
+const audioBuffer = await gateway.textToSpeech('Olá, seu pedido foi confirmado com sucesso!');
+```
+
+---
+
 ## 📁 Estrutura do Projeto
 
 ```
@@ -749,8 +926,24 @@ agentic-core/
 │   ├── orchestrator/                     # Orquestração (TaskGraph, TaskNode, ParallelExecutor, Orchestrator)
 │   ├── persistence/                      # Persistência (SessionStore, InMemorySessionStore)
 │   ├── platform/                         # Multi-tenancy (PlatformManager)
-│   └── providers/                        # Providers (Google, OpenAI, Anthropic, Ollama, Nvidia)
+│   ├── providers/                        # Providers (Google, OpenAI, Anthropic, Ollama, Nvidia)
+│   └── audio/                            # Áudio, Voz & TTS (GoogleTTS, PiperTTS, KokoroTTS, MagpieTTS, VoiceGateway, VoiceTypes, TTSResponse)
+│       ├── index.js                      # Exportações do módulo de áudio
+│       ├── BaseTTSProvider.js            # Contrato abstrato para provedores de voz (model, apiKey, url, voice)
+│       ├── GoogleTTS.js                  # Provedor Google Cloud TTS (0 MB RAM)
+│       ├── PiperTTS.js                   # Provedor Piper TTS (<50 MB RAM para Linux/CPU)
+│       ├── KokoroTTS.js                  # Provedor neural Kokoro 82M
+│       ├── MagpieTTS.js                  # Provedor NVIDIA Magpie Zero-Shot
+│       ├── TTSResponse.js                # Objeto de resposta com buffer e .toBase64(true) (OGG/WAV)
+│       ├── VoiceGateway.js               # Orquestrador bidirecional (STT + TTS)
+│       └── VoiceTypes.js                 # Constantes e enums tipados (GoogleVoice, KokoroVoice, PiperVoice, MagpieVoice, etc.)
 ├── tests/
+│   ├── test_tts_response_and_unified_process_message.js # Validação de TTSResponse, parâmetros url/model/apiKey e processMessage unificado
+│   ├── test_google_tts.js                # Validação de síntese em nuvem com GoogleTTS e GoogleVoice
+│   ├── test_piper_tts.js                 # Validação de motor ultra-leve com PiperTTS e PiperVoice
+│   ├── test_voice_turn_kokoro.js         # Validação end-to-end de STT (Nemotron Omni) + TTS (Kokoro)
+│   ├── test_real_audio_samples.js        # Teste com amostras reais de áudio (Gleicy Moreira e Renan Moreira)
+│   ├── test_magpie_tts.js                # Validação do pipeline NVIDIA Magpie NIM
 │   ├── test_skills_agent_flow.js         # Validação end-to-end do loop agentic com skills
 │   ├── test_skills_parser.js             # Validação de parsing de SKILL.md e YAML frontmatter
 │   ├── test_skills_cli_mock.js           # Validação do wrapper CLI e políticas de segurança
@@ -775,6 +968,13 @@ agentic-core/
 ```bash
 # Executar suíte padrão completa
 npm test
+
+# Executar suíte de testes de voz e áudio
+npm run test:tts      # Valida TTSResponse (.toBase64 OGG/WAV), parâmetros url/apiKey e processMessage unificado
+npm run test:google   # Valida Google Cloud TTS (Nuvem / Zero RAM)
+npm run test:piper    # Valida Piper TTS (<50MB RAM para Linux)
+npm run test:voice    # Valida STT multimodal + Kokoro 82M TTS
+npm run test:samples  # Valida processamento com amostras reais de áudio
 
 # Executar suíte de testes do ecossistema de skills (npx skills)
 npm run test:skills

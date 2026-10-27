@@ -1,8 +1,7 @@
 'use strict';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Tipos neutros de parâmetros para declarações de Tools
-// Substitui a dependência direta do @google/genai para definições de schema
+// Tipos neutros de parâmetros para declarações de Tools e Modelos
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
@@ -33,4 +32,28 @@ const ThinkingLevel = Object.freeze({
     HIGH: 'HIGH',
 });
 
-module.exports = { Type, ThinkingLevel };
+const {
+    Voice,
+    GoogleVoice,
+    KokoroVoice,
+    PiperVoice,
+    MagpieVoice,
+    AudioEncoding,
+    AudioFormat,
+    AudioMimeType,
+    TTSProvider,
+} = require('./audio/VoiceTypes');
+
+module.exports = {
+    Type,
+    ThinkingLevel,
+    Voice,
+    GoogleVoice,
+    KokoroVoice,
+    PiperVoice,
+    MagpieVoice,
+    AudioEncoding,
+    AudioFormat,
+    AudioMimeType,
+    TTSProvider,
+};

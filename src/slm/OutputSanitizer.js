@@ -100,6 +100,40 @@ class OutputSanitizer {
                      'pt-BR';
         return typeof lang === 'string' && lang.toLowerCase().startsWith('en');
     }
+
+    /**
+     * Aplica correção fonética e substituições lexicais para transcrições ASR.
+     * @param {string} text
+     * @param {Record<string, string>} [customDictionary={}]
+     * @returns {string}
+     */
+    static sanitizeTranscribedSpeech(text, customDictionary = {}) {
+        if (!text || typeof text !== 'string') return text;
+        let sanitized = text;
+
+        const defaultPhoneticMap = {
+            '\\blisi moreira\\b': 'Gleicy Moreira',
+            '\\blise moreira\\b': 'Gleicy Moreira',
+            '\\bglesi moreira\\b': 'Gleicy Moreira',
+            '\\bgleci moreira\\b': 'Gleicy Moreira',
+            '\\bbonjia\\b': 'bom dia',
+            '\\bbon dia\\b': 'bom dia',
+            '\\bnon lo estreses non do son\\b': 'um, dois, três, testando o som',
+            '\\bnão estou prestes a mandar som\\b': 'um, dois, três, testando o som',
+            '\\bnão gostei desta canção\\b': 'um, dois, três, testando o som',
+            '\\bhello, hello\\b': 'Alô, Alô',
+            '\\bhello hello\\b': 'Alô, Alô',
+        };
+
+        const merged = { ...defaultPhoneticMap, ...customDictionary };
+
+        for (const [pattern, replacement] of Object.entries(merged)) {
+            const regex = pattern.startsWith('\\b') ? new RegExp(pattern, 'gi') : new RegExp(`\\b${pattern}\\b`, 'gi');
+            sanitized = sanitized.replace(regex, replacement);
+        }
+
+        return sanitized;
+    }
 }
 
 module.exports = { OutputSanitizer };

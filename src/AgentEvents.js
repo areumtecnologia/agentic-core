@@ -36,6 +36,9 @@ const AgentEvents = Object.freeze({
     SKILL_EXECUTION: 'skill_execution',             // Script de skill executado
     SKILL_TELEMETRY: 'skill_telemetry',             // Telemetria e métricas de impacto de skills registradas
     SKILL_REPORT_GENERATED: 'skill_report_generated', // Relatório de eficiência de skills gerado
+    // ── Áudio & Síntese de Voz (Kokoro-82M / Nemotron Omni) ──
+    AUDIO_OUTPUT: 'audio_output',                   // Áudio de resposta gerado via TTS (Kokoro 82M)
+    AUDIO_INPUT_PROCESSED: 'audio_input_processed', // Áudio de entrada transcrito e processado
 });
 
 module.exports = { AgentEvents };

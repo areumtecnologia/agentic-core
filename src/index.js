@@ -151,4 +151,22 @@ module.exports = {
     registerSkillsTools,
     SkillSubAgent,
     SkillImpactAnalytics,
+    // ── Áudio & Síntese de Voz (Google Cloud / Piper / Kokoro-82M / NVIDIA MagpieTTS / VoiceGateway) ──
+    BaseTTSProvider: require('./audio').BaseTTSProvider,
+    GoogleTTS: require('./audio').GoogleTTS,
+    PiperTTS: require('./audio').PiperTTS,
+    KokoroTTS: require('./audio').KokoroTTS,
+    MagpieTTS: require('./audio').MagpieTTS,
+    VoiceGateway: require('./audio').VoiceGateway,
+    TTSResponse: require('./audio').TTSResponse,
+    // ── Constantes & Enumeradores de Voz e Áudio ──
+    Voice: require('./audio').Voice,
+    GoogleVoice: require('./audio').GoogleVoice,
+    KokoroVoice: require('./audio').KokoroVoice,
+    PiperVoice: require('./audio').PiperVoice,
+    MagpieVoice: require('./audio').MagpieVoice,
+    AudioEncoding: require('./audio').AudioEncoding,
+    AudioFormat: require('./audio').AudioFormat,
+    AudioMimeType: require('./audio').AudioMimeType,
+    TTSProvider: require('./audio').TTSProvider,
 };

@@ -6,7 +6,7 @@ const { AgentConfig } = require('./AgentConfig');
 const { AgentSession } = require('./AgentSession');
 const { AgentEvents } = require('./AgentEvents');
 const { withRetry } = require('./utils');
-const { Type } = require('./types');
+const { Type, AudioMimeType } = require('./types');
 const { BaseProvider } = require('./providers/BaseProvider');
 const { ContextCompactor, InMemoryStore, EpisodicMemory, SemanticMemory, ContextAugmenter } = require('./memory');
 const { TokenStream } = require('./streaming');
@@ -77,6 +77,9 @@ class AgenticCore extends EventEmitter {
     // ── Otimização Adaptativa para Modelos Compactos (< 1B / 1B) ──
     #promptTier = 'auto';
     #securityToolOption = 'auto';
+    // ── Suporte a Áudio & TTS de Primeira Classe (GoogleTTS, PiperTTS, KokoroTTS, etc.) ──
+    #ttsProvider = null;
+    #ttsConfig = null;
 
 
 
@@ -106,6 +109,9 @@ class AgenticCore extends EventEmitter {
      * @param {number}   [options.maxOutputTokens=32768]
      * @param {number}   [options.debounceMs=0]               ms de debounce entre mensagens da mesma sessão
      * @param {number}   [options.successDelayMs=0]           ms de atraso opcional após chamada bem-sucedida (anti-rate-limit). Padrão 0.
+     * @param {import('./audio/BaseTTSProvider').BaseTTSProvider} [options.ttsProvider] Provedor de síntese de voz (GoogleTTS, PiperTTS, KokoroTTS, MagpieTTS)
+     * @param {object}   [options.tts]                        Configurações ou instância de TTS
+     * @param {object}   [options.audio]                      Configurações avançadas de áudio e TTS
      */
     constructor({
         provider,
@@ -146,6 +152,9 @@ class AgenticCore extends EventEmitter {
         handoverTool = true,
         skills = null,
         skillsManager = null,
+        ttsProvider = null,
+        tts = null,
+        audio = null,
     } = {}) {
 
         super();
@@ -255,6 +264,14 @@ class AgenticCore extends EventEmitter {
         this.#successDelayMs = successDelayMs;
         this.#promptTier = promptTier;
         this.#securityToolOption = securityTool;
+
+        // ── Provedor de Síntese de Voz (TTS): primeira classe (GoogleTTS, PiperTTS, KokoroTTS, etc.) ──
+        const rawTTS = ttsProvider || tts || (audio && (audio.ttsProvider || audio.tts));
+        if (rawTTS && (typeof rawTTS.synthesize === 'function')) {
+            this.#ttsProvider = rawTTS;
+        } else {
+            this.#ttsConfig = rawTTS || null;
+        }
 
         // ── Inicializa memória de longo prazo (opcional) ──
         if (memoryStore) {
@@ -870,44 +887,198 @@ class AgenticCore extends EventEmitter {
     }
 
     /**
-     * Processa uma mensagem do user dentro de uma sessão existente.
-     * Gerencia o histórico completo (incluindo turns intermediários de tool calls).
+     * Retorna a instância do provedor TTS (prioriza ttsProvider de primeira classe).
+     * @private
+     */
+    #getTTSEngine(customOptions = {}) {
+        // Se um ttsProvider específico foi fornecido diretamente na chamada:
+        if (customOptions.ttsProvider && typeof customOptions.ttsProvider.synthesize === 'function') {
+            return customOptions.ttsProvider;
+        }
+
+        // Se o agente foi instanciado com um ttsProvider de primeira classe (padrão da biblioteca):
+        if (this.#ttsProvider && (!customOptions || Object.keys(customOptions).length === 0 || !customOptions.provider)) {
+            return this.#ttsProvider;
+        }
+
+        // Fallback dinâmico sob demanda:
+        const baseOpts = typeof this.#ttsConfig === 'object' && this.#ttsConfig !== null ? this.#ttsConfig : {};
+        const mergedOpts = { ...baseOpts, ...customOptions };
+        const providerName = (mergedOpts.provider || mergedOpts.engine || (mergedOpts.model?.includes('magpie') ? 'magpie' : (mergedOpts.model?.includes('piper') ? 'piper' : (mergedOpts.model?.includes('kokoro') ? 'kokoro' : 'google')))).toLowerCase();
+
+        if (providerName === 'piper') {
+            const { PiperTTS } = require('./audio/PiperTTS');
+            return new PiperTTS(mergedOpts);
+        }
+
+        if (providerName === 'magpie') {
+            const { MagpieTTS } = require('./audio/MagpieTTS');
+            return new MagpieTTS(mergedOpts);
+        }
+
+        if (providerName === 'kokoro') {
+            const { KokoroTTS } = require('./audio/KokoroTTS');
+            return new KokoroTTS(mergedOpts);
+        }
+
+        const { GoogleTTS } = require('./audio/GoogleTTS');
+        return new GoogleTTS(mergedOpts);
+    }
+
+    /**
+     * Retorna o provedor TTS configurado para o agente.
+     * @returns {import('./audio/BaseTTSProvider').BaseTTSProvider}
+     */
+    get ttsProvider() {
+        return this.#ttsProvider || this.#getTTSEngine();
+    }
+
+    /**
+     * Sintetiza texto em áudio usando o provedor de TTS configurado (GoogleCloud, PiperTTS, Kokoro-82M ou MagpieTTS).
+     * @param {string} text Texto para sintetizar
+     * @param {object} [options] Opções de síntese (voice, languageCode, speakingRate, etc.)
+     * @param {import('./audio/BaseTTSProvider').BaseTTSProvider} [options.ttsProvider] Provedor específico para esta chamada
+     * @param {('google'|'piper'|'kokoro'|'magpie')} [options.provider] Identificador do provedor sob demanda
+     * @param {Buffer|string} [options.audioPrompt] Amostra de áudio para clonagem zero-shot (se provider for 'magpie')
+     * @returns {Promise<Buffer>}
+     */
+    async synthesizeSpeech(text, options = {}) {
+        const engine = this.#getTTSEngine(options);
+        return await engine.synthesize(text, options);
+    }
+
+    /**
+     * @deprecated Utilize agent.processMessage(sessionId, text, attachment, options) diretamente.
+     * Mantido para retrocompatibilidade; delega unicamente para processMessage.
      *
-     * @param {string} sessionId  ID da sessão
-     * @param {string} text       Texto da mensagem do user
-     * @param {object} [attachment]
-     * @param {string} [attachment.base64] Dados em base64 da mídia (opcional)
-     * @param {string} [attachment.mimetype] Tipo MIME da mídia (opcional)
-     * @param {object} [options]
-     * @param {AbortSignal} [options.signal] Sinal opcional para cancelamento/aborto
-     * @returns {Promise<object>} AgentResponse estruturada
+     * @param {string} sessionId
+     * @param {object|string|Buffer} audioAttachment
+     * @param {object} [options={}]
+     * @returns {Promise<object>} Resposta com audioBuffer e ttsResponse incluídos
+     */
+    async processVoiceTurn(sessionId, audioAttachment, options = {}) {
+        const prompt = options.prompt || '';
+        return await this.processMessage(sessionId, prompt, audioAttachment, options);
+    }
+
+    /**
+     * Processa uma mensagem do usuário dentro de uma sessão existente.
+     * Suporta envio unificado de texto puro, áudio, imagens e outros conteúdos multimídia.
+     * Quando houver um ttsProvider configurado, a resposta final sintetizada estará disponível
+     * tanto no retorno deste método quanto no evento AgentEvents.RESPONSE (como `ttsResponse`).
+     *
+     * @param {string} sessionId                      ID da sessão
+     * @param {string} [text]                         Texto da mensagem ou prompt descritivo
+     * @param {object|string|Buffer} [attachment={}]  Anexo de mídia (caminho de arquivo, Buffer ou { base64, mimeType })
+     * @param {object} [options={}]                   Opções de execução, tts, retry, etc.
+     * @param {AbortSignal} [options.signal]          Sinal para cancelamento/aborto
+     * @param {import('./audio/BaseTTSProvider').BaseTTSProvider} [options.ttsProvider] Provedor TTS específico
+     * @param {boolean|object} [options.tts]          true para ativar TTS ou objeto com ttsOptions
+     * @returns {Promise<object>} AgentResponse estruturada (contendo ttsResponse quando houver provedor TTS)
      */
     async processMessage(sessionId, text, attachment = {}, options = {}) {
         const sid = String(sessionId);
-        const { signal } = options || {};
-        const base64 = attachment?.base64;
-        const mimeType = attachment?.mimetype || attachment?.mimeType;
 
-        let normalizedMessage = text;
+        // Suporte flexível para chamada com 3 argumentos: processMessage(sid, text, options)
+        let finalAttachment = attachment;
+        let finalOptions = options || {};
+        if (attachment && typeof attachment === 'object' && !Buffer.isBuffer(attachment) && !attachment.base64 && !attachment.filePath && !attachment.path && !attachment.buffer) {
+            if (options && Object.keys(options).length === 0 && (attachment.signal || attachment.tts !== undefined || attachment.ttsProvider || attachment.ttsOptions || attachment.telemetry)) {
+                finalOptions = attachment;
+                finalAttachment = {};
+            }
+        }
+
+        const { signal } = finalOptions;
+
+        // Normalização de anexo: caminho de arquivo, Buffer ou objeto { base64, mimeType }
+        let normalizedAttachment = null;
+        if (typeof finalAttachment === 'string' && finalAttachment.trim().length > 0) {
+            const fs = require('fs');
+            const path = require('path');
+            if (fs.existsSync(finalAttachment)) {
+                const ext = path.extname(finalAttachment).toLowerCase();
+                let mimeType = 'application/octet-stream';
+                if (ext === '.ogg') mimeType = AudioMimeType.OGG;
+                else if (ext === '.mp3') mimeType = AudioMimeType.MP3;
+                else if (ext === '.wav') mimeType = AudioMimeType.WAV;
+                else if (ext === '.png') mimeType = 'image/png';
+                else if (ext === '.jpg' || ext === '.jpeg') mimeType = 'image/jpeg';
+                else if (ext === '.webp') mimeType = 'image/webp';
+                else if (ext === '.pdf') mimeType = 'application/pdf';
+
+                const fileBuf = fs.readFileSync(finalAttachment);
+                normalizedAttachment = {
+                    base64: fileBuf.toString('base64'),
+                    mimeType,
+                    filePath: finalAttachment
+                };
+            }
+        } else if (finalAttachment && (Buffer.isBuffer(finalAttachment) || Buffer.isBuffer(finalAttachment.buffer))) {
+            const buf = Buffer.isBuffer(finalAttachment) ? finalAttachment : finalAttachment.buffer;
+            normalizedAttachment = {
+                base64: buf.toString('base64'),
+                mimeType: finalAttachment.mimeType || finalAttachment.mimetype || 'audio/wav',
+                buffer: buf
+            };
+        } else if (finalAttachment && (finalAttachment.filePath || finalAttachment.path)) {
+            const filePath = finalAttachment.filePath || finalAttachment.path;
+            const fs = require('fs');
+            const path = require('path');
+            if (fs.existsSync(filePath)) {
+                const ext = path.extname(filePath).toLowerCase();
+                let mimeType = finalAttachment.mimeType || finalAttachment.mimetype;
+                if (!mimeType) {
+                    if (ext === '.ogg') mimeType = AudioMimeType.OGG;
+                    else if (ext === '.mp3') mimeType = AudioMimeType.MP3;
+                    else if (ext === '.wav') mimeType = AudioMimeType.WAV;
+                    else if (ext === '.png') mimeType = 'image/png';
+                    else if (ext === '.jpg' || ext === '.jpeg') mimeType = 'image/jpeg';
+                    else if (ext === '.webp') mimeType = 'image/webp';
+                    else if (ext === '.pdf') mimeType = 'application/pdf';
+                }
+                const fileBuf = fs.readFileSync(filePath);
+                normalizedAttachment = {
+                    base64: fileBuf.toString('base64'),
+                    mimeType: mimeType || 'application/octet-stream',
+                    filePath
+                };
+            }
+        } else if (finalAttachment && finalAttachment.base64) {
+            normalizedAttachment = {
+                base64: finalAttachment.base64,
+                mimeType: finalAttachment.mimeType || finalAttachment.mimetype || 'image/jpeg'
+            };
+        }
+
+        const base64 = normalizedAttachment?.base64;
+        const mimeType = normalizedAttachment?.mimeType;
+
+        const effectiveText = (text && typeof text === 'string' && text.trim().length > 0)
+            ? text.trim()
+            : (mimeType?.startsWith('audio/')
+                ? 'Você é um assistente de voz nativo em português brasileiro (pt-BR). Escute com máxima atenção a fala contida neste áudio e responda de forma natural, personalizada e acolhedora à solicitação do usuário.'
+                : (base64 ? 'Analise o anexo fornecido e responda de forma prestativa, clara e contextualizada.' : ''));
+
+        let normalizedMessage = effectiveText;
         if (base64) {
-            const finalMimeType = mimeType || 'image/jpeg';
             normalizedMessage = {
                 parts: [
                     {
                         inlineData: {
                             data: base64,
-                            mimeType: finalMimeType
+                            mimeType: mimeType || 'image/jpeg'
                         }
                     },
                     {
-                        text: text
+                        text: effectiveText
                     }
                 ]
             };
         }
 
         if (this.#debounceMs <= 0) {
-            return await this.#executeProcessMessage(normalizedMessage, sid, signal, false, options);
+            return await this.#executeProcessMessage(normalizedMessage, sid, signal, false, finalOptions);
         }
 
         let sessionBuffer = this.#sessionBuffers.get(sid);
@@ -1552,6 +1723,11 @@ class AgenticCore extends EventEmitter {
         responseText = this.#sanitizeRepetitiveText(responseText);
         reasoningText = this.#sanitizeRepetitiveText(reasoningText);
 
+        if (responseText && options.phoneticSanitization !== false) {
+            const { OutputSanitizer } = require('./slm/OutputSanitizer');
+            responseText = OutputSanitizer.sanitizeTranscribedSpeech(responseText, options.phoneticDictionary || {});
+        }
+
         const parsed = {
             sent_at: new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }),
             reasoning: reasoningText,
@@ -1567,6 +1743,43 @@ class AgenticCore extends EventEmitter {
 
         this.#emitSemanticEvents(parsed, session);
 
+        // ── Síntese de Voz (TTS) se houver ttsProvider configurado ──
+        let ttsResponse = null;
+        const ttsEngine = options.ttsProvider || (options.tts !== false && this.#ttsProvider);
+        if (ttsEngine && parsed.response && !session.terminated) {
+            try {
+                const ttsOpts = typeof options.tts === 'object' && options.tts !== null
+                    ? options.tts
+                    : (options.ttsOptions || {});
+                const audioBuffer = await ttsEngine.synthesize(parsed.response, ttsOpts);
+                const { TTSResponse } = require('./audio/TTSResponse');
+                ttsResponse = new TTSResponse({
+                    buffer: audioBuffer,
+                    format: ttsOpts.format || ttsEngine.format || (ttsEngine.audioEncoding ? ttsEngine.audioEncoding.toLowerCase() : 'wav'),
+                    voice: ttsOpts.voice || ttsEngine.voice,
+                    provider: ttsEngine.getName ? ttsEngine.getName() : 'tts',
+                    model: ttsEngine.model || 'tts'
+                });
+
+                this.emit(AgentEvents.AUDIO_OUTPUT, {
+                    sessionId: session.id,
+                    text: parsed.response,
+                    audioBuffer,
+                    ttsResponse,
+                    voice: ttsResponse.voice,
+                    format: ttsResponse.format,
+                    session: session.toJSON()
+                });
+            } catch (ttsErr) {
+                this.emit(AgentEvents.ERROR, { error: ttsErr, source: 'tts_synthesize', session: session.toJSON() });
+            }
+        }
+
+        const finalParsed = {
+            ...parsed,
+            ...(ttsResponse ? { ttsResponse, audioBuffer: ttsResponse.buffer } : {})
+        };
+
         // O turno final do modelo no histórico deve conter o texto saneado, evitando propagar loops degenerativos.
         const modelFinalTurn = {
             role: 'model',
@@ -1574,9 +1787,13 @@ class AgenticCore extends EventEmitter {
         };
 
         this.emit(AgentEvents.TURN_END, { depth, type: 'response', session: session.toJSON() });
-        this.emit(AgentEvents.RESPONSE, { ...parsed, session: session.toJSON(), usageMetadata: rawResponse.usageMetadata });
+        this.emit(AgentEvents.RESPONSE, {
+            ...finalParsed,
+            session: session.toJSON(),
+            usageMetadata: rawResponse.usageMetadata
+        });
 
-        return { result: parsed, extraTurns: [modelFinalTurn] };
+        return { result: finalParsed, extraTurns: [modelFinalTurn] };
     }
 
     // ── Model call: retry + timeout ───────────────────────────────────────────

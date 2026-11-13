@@ -8,6 +8,7 @@
 class ContextAugmenter {
     #semanticMemory;
     #episodicMemory;
+    #graphMemory;
     #maxSemanticFacts;
     #maxEpisodicSummaries;
 
@@ -15,17 +16,20 @@ class ContextAugmenter {
      * @param {object} options
      * @param {import('./SemanticMemory').SemanticMemory} [options.semanticMemory]
      * @param {import('./EpisodicMemory').EpisodicMemory} [options.episodicMemory]
+     * @param {import('./graph/GraphMemoryStore').GraphMemoryStore} [options.graphMemory]
      * @param {number} [options.maxSemanticFacts=10]
      * @param {number} [options.maxEpisodicSummaries=3]
      */
     constructor({
         semanticMemory = null,
         episodicMemory = null,
+        graphMemory = null,
         maxSemanticFacts = 10,
         maxEpisodicSummaries = 3
     } = {}) {
         this.#semanticMemory = semanticMemory;
         this.#episodicMemory = episodicMemory;
+        this.#graphMemory = graphMemory;
         this.#maxSemanticFacts = maxSemanticFacts;
         this.#maxEpisodicSummaries = maxEpisodicSummaries;
     }
@@ -37,7 +41,7 @@ class ContextAugmenter {
      * @returns {Promise<string|null>} Bloco de contexto recuperado em XML/Markdown ou null
      */
     async retrieveContext(session, message) {
-        if (!this.#semanticMemory && !this.#episodicMemory) {
+        if (!this.#semanticMemory && !this.#episodicMemory && !this.#graphMemory) {
             return null;
         }
 
@@ -79,6 +83,22 @@ class ContextAugmenter {
                 }
             } catch (err) {
                 // Silencia falha de busca
+            }
+        }
+
+        // 3. Consulta subgrafo relacional de conhecimento (GraphRAG / Multi-Hop)
+        if (this.#graphMemory) {
+            try {
+                const messageText = typeof message === 'string'
+                    ? message
+                    : (message?.text || message?.content || (Array.isArray(message?.parts) ? message.parts.map(p => p.text).filter(Boolean).join(' ') : ''));
+
+                const graphSubgraph = await this.#graphMemory.queryRelatedContext(sessionId, messageText);
+                if (graphSubgraph && graphSubgraph.length > 0) {
+                    sections.push(`### Relational Knowledge Graph (Multi-Hop Context):\n${graphSubgraph}`);
+                }
+            } catch (err) {
+                // Silencia falha de busca no grafo
             }
         }
 

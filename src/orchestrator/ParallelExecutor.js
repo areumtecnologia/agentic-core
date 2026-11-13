@@ -40,9 +40,11 @@ class ParallelExecutor extends EventEmitter {
      * @param {AbortSignal} [opts.signal]
      * @param {function} [opts.onTaskComplete]
      * @param {function} [opts.onTaskError]
+     * @param {import('../durable').CheckpointManager} [opts.checkpointManager]
+     * @param {string} [opts.sessionId]
      * @returns {Promise<Map<string, any>>}
      */
-    async execute(graph, { signal, onTaskComplete, onTaskError } = {}) {
+    async execute(graph, { signal, onTaskComplete, onTaskError, checkpointManager, sessionId } = {}) {
         // Valida ciclo e obtém os nós
         graph.topologicalSort();
 
@@ -53,6 +55,20 @@ class ParallelExecutor extends EventEmitter {
         const completed = new Set();
         const running = new Set();
         const results = new Map();
+
+        // Recupera nós concluídos de checkpoints prévios (Resiliência / Durable Execution)
+        if (checkpointManager && sessionId) {
+            try {
+                const journal = await checkpointManager.getJournal(sessionId);
+                for (const entry of journal) {
+                    if (entry.type === 'GRAPH_NODE_COMPLETE' && entry.payload?.nodeId && allNodes.has(entry.payload.nodeId)) {
+                        completed.add(entry.payload.nodeId);
+                        results.set(entry.payload.nodeId, entry.payload.result);
+                        results[entry.payload.nodeId] = entry.payload.result;
+                    }
+                }
+            } catch {}
+        }
 
         return new Promise((resolve, reject) => {
             let isAborted = false;
@@ -102,21 +118,32 @@ class ParallelExecutor extends EventEmitter {
                     const node = readyNodes.shift();
                     running.add(node.id);
 
-                    this.#executeNode(node, signal, onTaskComplete, onTaskError, results)
-                        .then((result) => {
+                    const runNode = async () => {
+                        try {
+                            const result = await this.#executeNode(node, signal, onTaskComplete, onTaskError, results);
                             results.set(node.id, result);
                             results[node.id] = result;
-                        })
-                        .catch((error) => {
+                            if (checkpointManager && sessionId) {
+                                await checkpointManager.sessionStore?.appendJournal(sessionId, {
+                                    type: 'GRAPH_NODE_COMPLETE',
+                                    payload: {
+                                        nodeId: node.id,
+                                        result
+                                    }
+                                }).catch(() => {});
+                            }
+                        } catch (error) {
                             const errResult = { success: false, output: '', error };
                             results.set(node.id, errResult);
                             results[node.id] = errResult;
-                        })
-                        .finally(() => {
+                        } finally {
                             running.delete(node.id);
                             completed.add(node.id);
                             checkAndDispatch();
-                        });
+                        }
+                    };
+
+                    runNode();
                 }
             };
 

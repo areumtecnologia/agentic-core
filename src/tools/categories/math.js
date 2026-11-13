@@ -6,17 +6,19 @@
 
 'use strict';
 
-const vm = require('node:vm');
+const { SafeSandboxRunner } = require('../../sandbox');
 
 class MathTools {
   /**
    * @param {object} [options={}]
    * @param {string} [options.toolName='calculate_expression'] Nome da ferramenta no catálogo
    * @param {number} [options.timeoutMs=1500] Timeout de execução em milissegundos
+   * @param {import('../../sandbox').BaseSandboxRunner} [options.sandboxRunner] Runner de sandbox customizado
    */
   constructor(options = {}) {
     this.toolName = options.toolName || 'calculate_expression';
     this.timeoutMs = options.timeoutMs || 1500;
+    this.sandboxRunner = options.sandboxRunner || new SafeSandboxRunner({ timeoutMs: this.timeoutMs });
     this.tools = new Map();
 
     this.initializeTools();
@@ -134,24 +136,22 @@ class MathTools {
     }
 
     // ── Barreira 2: Sandbox Isolado ──
-    const sandbox = Object.create(null);
-    sandbox.Math = Math;
-    sandbox.Number = Number;
-    sandbox.parseInt = parseInt;
-    sandbox.parseFloat = parseFloat;
-    sandbox.isNaN = isNaN;
-    sandbox.isFinite = isFinite;
-
     try {
-      // Se for apenas uma expressão simples, envolve para retorno direto
-      const wrappedCode = cleanExpr.includes(';') || cleanExpr.includes('return')
-        ? `"use strict"; (function() { ${cleanExpr} })()`
-        : `"use strict"; (${cleanExpr})`;
+      const exec = typeof this.sandboxRunner.runCodeSync === 'function'
+        ? this.sandboxRunner.runCodeSync({ code: cleanExpr })
+        : { success: false, error: 'Sandbox runner não suporta execução sincrônica.' };
 
-      const result = vm.runInNewContext(wrappedCode, sandbox, {
-        timeout: this.timeoutMs,
-        microtaskMode: 'afterEvaluate',
-      });
+      if (!exec.success) {
+        return {
+          success: false,
+          expression: cleanExpr,
+          error: exec.error.includes('Security Violation')
+            ? exec.error
+            : `Erro ao calcular expressão: ${exec.error}`
+        };
+      }
+
+      const result = exec.result;
 
       // Valida que o resultado é seguro e serializável
       if (typeof result === 'function' || (typeof result === 'object' && result !== null && !(result instanceof Number))) {

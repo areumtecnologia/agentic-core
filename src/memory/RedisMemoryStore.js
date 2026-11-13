@@ -22,6 +22,7 @@ class RedisMemoryStore extends MemoryStore {
     #client = null;
     #options;
     #isConnected = false;
+    #fallbackStore = null;
 
     constructor(options = {}) {
         super();

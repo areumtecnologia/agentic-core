@@ -76,6 +76,14 @@ const {
     SkillSubAgent,
     SkillImpactAnalytics,
 } = require('./skills');
+const { ExecutionJournal, JournalEntryType, CheckpointManager } = require('./durable');
+const { BaseSandboxRunner, SafeSandboxRunner, WasmSandboxRunner, E2BSandboxRunner } = require('./sandbox');
+const { VerificationEngine } = require('./verification');
+const { KnowledgeGraph, GraphMemoryStore } = require('./memory');
+const { AgentSwarm, SwarmMessageBus, SharedBlackboard, SwarmMember, PipelineTopology, SupervisorTopology, BlackboardTopology } = require('./swarm');
+const { BaseBrowserDriver, MockBrowserDriver, BrowserActionTool } = require('./browser');
+const { OtelGenAIBridge, OtelExporter } = require('./telemetry');
+const { TrajectoryEvaluator, EvalReportGenerator, AgentBenchmarkHarness } = require('./evaluation');
 
 module.exports = {
     AgenticCore,
@@ -169,4 +177,37 @@ module.exports = {
     AudioFormat: require('./audio').AudioFormat,
     AudioMimeType: require('./audio').AudioMimeType,
     TTSProvider: require('./audio').TTSProvider,
+    // ── Resiliência Transacional & Execução Durável (v4.0) ──
+    ExecutionJournal,
+    JournalEntryType,
+    CheckpointManager,
+    // ── Sandbox Seguro de Execução (v4.0) ──
+    BaseSandboxRunner,
+    SafeSandboxRunner,
+    WasmSandboxRunner,
+    E2BSandboxRunner,
+    // ── Actor-Critic & Verificação Cognitiva (v4.1) ──
+    VerificationEngine,
+    // ── Memória em Grafo de Conhecimento / GraphRAG (v4.1) ──
+    KnowledgeGraph,
+    GraphMemoryStore,
+    // ── Swarms Colaborativos Multi-Agente & A2A (v4.2) ──
+    AgentSwarm,
+    SwarmMessageBus,
+    SharedBlackboard,
+    SwarmMember,
+    PipelineTopology,
+    SupervisorTopology,
+    BlackboardTopology,
+    // ── Browser Use & Navegação Segura (v4.2) ──
+    BaseBrowserDriver,
+    MockBrowserDriver,
+    BrowserActionTool,
+    // ── Observabilidade OpenTelemetry GenAI (v4.3) ──
+    OtelGenAIBridge,
+    OtelExporter,
+    // ── Trajectory Evals & CI/CD Benchmarking (v4.3) ──
+    TrajectoryEvaluator,
+    EvalReportGenerator,
+    AgentBenchmarkHarness,
 };

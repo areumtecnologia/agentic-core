@@ -8,13 +8,17 @@ const { AgentEvents } = require('./AgentEvents');
 const { withRetry } = require('./utils');
 const { Type, AudioMimeType } = require('./types');
 const { BaseProvider } = require('./providers/BaseProvider');
-const { ContextCompactor, InMemoryStore, EpisodicMemory, SemanticMemory, ContextAugmenter } = require('./memory');
+const { ContextCompactor, InMemoryStore, EpisodicMemory, SemanticMemory, ContextAugmenter, KnowledgeGraph, GraphMemoryStore } = require('./memory');
 const { TokenStream } = require('./streaming');
 const { ToolSecurityPolicy, ReasoningTools, MathTools, WebTools } = require('./tools');
-const { TelemetryProvider } = require('./telemetry');
+const { TelemetryProvider, OtelGenAIBridge, OtelExporter } = require('./telemetry');
 const { IntentRouter, OutputSanitizer } = require('./slm');
 const { SessionStore } = require('./persistence/SessionStore');
 const { SkillsManager, registerSkillsTools } = require('./skills');
+const { CheckpointManager, ExecutionJournal } = require('./durable');
+const { SafeSandboxRunner, WasmSandboxRunner, E2BSandboxRunner } = require('./sandbox');
+const { VerificationEngine } = require('./verification');
+const { BrowserActionTool, MockBrowserDriver } = require('./browser');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // AgenticCore
@@ -83,6 +87,14 @@ class AgenticCore extends EventEmitter {
     // ── Tratamento Inteligente de Estouro de Tokens & Auto-continuação ──
     #autoContinueOnLength = false;
     #maxAutoContinuations = 2;
+    // ── Execução Durável & Sandbox Isolado (v4.0) ──
+    #checkpointManager = null;
+    #sandboxRunner = null;
+    // ── Actor-Critic & Memória em Grafo (v4.1) ──
+    #verificationEngine = null;
+    #graphMemory = null;
+    // ── Browser Use & Navegação Segura (v4.2) ──
+    #browserTool = null;
 
 
 
@@ -165,6 +177,14 @@ class AgenticCore extends EventEmitter {
         audio = null,
         autoContinueOnLength = false,
         maxAutoContinuations = 2,
+        durable = null,
+        checkpointManager = null,
+        sandbox = null,
+        verification = null,
+        graphMemory = null,
+        browser = null,
+        browserTool = null,
+        otel = null,
     } = {}) {
 
         super();
@@ -306,14 +326,47 @@ class AgenticCore extends EventEmitter {
             this.#semanticMemory = new SemanticMemory(this.#memoryStore);
         }
 
+        // ── Memória em Grafo de Conhecimento (GraphRAG / v4.1) ──
+        if (graphMemory) {
+            if (graphMemory instanceof GraphMemoryStore) {
+                this.#graphMemory = graphMemory;
+            } else {
+                const graphOpts = typeof graphMemory === 'object' && graphMemory !== null ? graphMemory : {};
+                if (graphOpts.enabled !== false) {
+                    this.#graphMemory = new GraphMemoryStore({
+                        sessionStore: this.#sessionStore,
+                        ...graphOpts
+                    });
+                }
+            }
+        }
+
         this.#autoRetrieveMemory = Boolean(autoRetrieveMemory);
-        this.#telemetry = telemetry;
+
+        // ── Observabilidade OpenTelemetry GenAI (v4.3) ──
+        if (otel) {
+            if (otel instanceof OtelGenAIBridge) {
+                this.#telemetry = otel;
+            } else if (typeof otel === 'object' && otel !== null) {
+                this.#telemetry = new OtelGenAIBridge(otel);
+            }
+        } else {
+            this.#telemetry = telemetry;
+        }
+
+        if (this.#telemetry instanceof OtelGenAIBridge) {
+            this.#telemetry.on('otel:span_exported', (span) => {
+                this.emit(AgentEvents.OTEL_SPAN_EXPORTED, span);
+            });
+        }
+
         this.#securityPolicy = securityPolicy;
 
-        if (this.#episodicMemory || this.#semanticMemory) {
+        if (this.#episodicMemory || this.#semanticMemory || this.#graphMemory) {
             this.#contextAugmenter = new ContextAugmenter({
                 semanticMemory: this.#semanticMemory,
                 episodicMemory: this.#episodicMemory,
+                graphMemory: this.#graphMemory,
             });
         }
 
@@ -369,6 +422,21 @@ class AgenticCore extends EventEmitter {
             }
         }
 
+        // ── Sandbox Seguro de Execução (v4.0) ──
+        if (sandbox) {
+            if (typeof sandbox.runCode === 'function') {
+                this.#sandboxRunner = sandbox;
+            } else if (typeof sandbox === 'object') {
+                if (sandbox.provider === 'wasm') {
+                    this.#sandboxRunner = new WasmSandboxRunner(sandbox);
+                } else if (sandbox.provider === 'e2b') {
+                    this.#sandboxRunner = new E2BSandboxRunner(sandbox);
+                } else {
+                    this.#sandboxRunner = new SafeSandboxRunner(sandbox);
+                }
+            }
+        }
+
         // ── Inicializa ferramenta segura de cálculo matemático/código (opcional) ──
         const calcConfig = calculatorTool || mathTool || codeEval;
         if (calcConfig) {
@@ -385,6 +453,7 @@ class AgenticCore extends EventEmitter {
             this.#mathTool = new MathTools({
                 toolName,
                 timeoutMs: this.#mathToolOptions.timeoutMs,
+                sandboxRunner: this.#sandboxRunner || opts.sandboxRunner,
             });
 
             const [toolDef] = this.#mathTool.getTools();
@@ -441,6 +510,62 @@ class AgenticCore extends EventEmitter {
 
         // ── Persistência de Sessões (SessionStore pluggable) ──
         this.#sessionStore = sessionStore;
+
+        // ── Execução Durável & Checkpoints (v4.0) ──
+        if (checkpointManager) {
+            this.#checkpointManager = checkpointManager;
+        } else if (durable || (sessionStore && durable !== false)) {
+            const durableOpts = (typeof durable === 'object' && durable !== null) ? durable : {};
+            if (durableOpts.enabled !== false && this.#sessionStore) {
+                this.#checkpointManager = new CheckpointManager(this.#sessionStore, durableOpts);
+            }
+        }
+
+        // ── Motor de Verificação Actor-Critic (v4.1) ──
+        if (verification) {
+            if (verification instanceof VerificationEngine) {
+                this.#verificationEngine = verification;
+            } else {
+                const verifOpts = (typeof verification === 'object' && verification !== null) ? verification : {};
+                if (verifOpts.enabled !== false) {
+                    this.#verificationEngine = new VerificationEngine({
+                        sandboxRunner: this.#sandboxRunner,
+                        ...verifOpts
+                    });
+                }
+            }
+        }
+
+        // ── Browser Use & Navegação Segura (v4.2) ──
+        if (browserTool || browser) {
+            if (browserTool instanceof BrowserActionTool) {
+                this.#browserTool = browserTool;
+            } else if (browser instanceof BrowserActionTool) {
+                this.#browserTool = browser;
+            } else {
+                const browserOpts = typeof browserTool === 'object' && browserTool !== null
+                    ? browserTool
+                    : (typeof browser === 'object' && browser !== null ? browser : {});
+                this.#browserTool = new BrowserActionTool({
+                    driver: browserOpts.driver,
+                    allowPrivateNetworks: browserOpts.allowPrivateNetworks === true,
+                    emitter: this
+                });
+            }
+
+            const toolDef = this.#browserTool.getDefinition();
+            this.registerTool({
+                name: toolDef.name,
+                description: toolDef.description,
+                parameters: {
+                    type: Type.OBJECT,
+                    properties: toolDef.parameters.properties,
+                    required: toolDef.parameters.required,
+                },
+            }, async (args, signal) => {
+                return this.#browserTool.execute(args, signal);
+            });
+        }
 
         // ── Human-in-the-Loop & Handover Omnichannel (opcional / habilitado por padrão) ──
         if (handoverTool !== false) {
@@ -755,6 +880,83 @@ class AgenticCore extends EventEmitter {
         }
 
         return session;
+    }
+
+    /**
+     * Retorna a instância ativa do CheckpointManager (se configurado).
+     * @returns {CheckpointManager|null}
+     */
+    get checkpointManager() {
+        return this.#checkpointManager;
+    }
+
+    /**
+     * Retorna a instância ativa do SandboxRunner (se configurado).
+     * @returns {BaseSandboxRunner|null}
+     */
+    get sandboxRunner() {
+        return this.#sandboxRunner;
+    }
+
+    /**
+     * Retorna a instância ativa do VerificationEngine (se configurado).
+     * @returns {VerificationEngine|null}
+     */
+    get verificationEngine() {
+        return this.#verificationEngine;
+    }
+
+    /**
+     * Retorna a instância ativa de GraphMemoryStore (se configurado).
+     * @returns {GraphMemoryStore|null}
+     */
+    get graphMemory() {
+        return this.#graphMemory;
+    }
+
+    /**
+     * Retorna a instância ativa de BrowserActionTool (se configurada).
+     * @returns {BrowserActionTool|null}
+     */
+    get browserTool() {
+        return this.#browserTool;
+    }
+
+    /**
+     * Retorna a ponte de telemetria OpenTelemetry GenAI (se configurada).
+     * @returns {OtelGenAIBridge|null}
+     */
+    get otel() {
+        return this.#telemetry instanceof OtelGenAIBridge ? this.#telemetry : null;
+    }
+
+    /**
+     * Recupera e restaura o estado de uma sessão a partir de checkpoints e diário persistidos.
+     * @param {string} sessionId
+     * @returns {Promise<{ session: AgentSession|null, recovery: object|null }>}
+     */
+    async recoverAndResumeSession(sessionId) {
+        const sid = String(sessionId);
+        const session = await this.loadSession(sid);
+        let recovery = null;
+
+        if (this.#checkpointManager) {
+            recovery = await this.#checkpointManager.recoverSession(sid);
+            const latestCheckpoint = await this.#checkpointManager.getLatestCheckpoint(sid);
+            this.emit(AgentEvents.CHECKPOINT_RESTORED, {
+                sessionId: sid,
+                session: session ? session.toJSON() : null,
+                recovery,
+                latestCheckpoint
+            });
+        }
+
+        if (session && session.isPaused) {
+            session.resume();
+            this.emit(AgentEvents.SESSION_RESUMED, { session: session.toJSON() });
+        }
+
+        return { session, recovery };
     }
 
     /**
@@ -1078,8 +1280,9 @@ class AgenticCore extends EventEmitter {
         const base64 = normalizedAttachment?.base64;
         const mimeType = normalizedAttachment?.mimeType;
 
-        const effectiveText = (text && typeof text === 'string' && text.trim().length > 0)
-            ? text.trim()
+        const rawText = (text && typeof text === 'object' && typeof text.text === 'string') ? text.text : text;
+        const effectiveText = (rawText && typeof rawText === 'string' && rawText.trim().length > 0)
+            ? rawText.trim()
             : (mimeType?.startsWith('audio/')
                 ? 'Você é um assistente de voz nativo em português brasileiro (pt-BR). Escute com máxima atenção a fala contida neste áudio e responda de forma natural, personalizada e acolhedora à solicitação do usuário.'
                 : (base64 ? 'Analise o anexo fornecido e responda de forma prestativa, clara e contextualizada.' : ''));
@@ -1253,14 +1456,37 @@ class AgenticCore extends EventEmitter {
             session.cancelIdle();
         }
 
-        // ── Auto-RAG de Memória (Fase 2) ──
+        // ── Auto-RAG de Memória & GraphRAG (Fase 2) ──
         let augmentedContext = null;
         if ((options.autoRetrieveMemory ?? this.#autoRetrieveMemory) && this.#contextAugmenter) {
             try {
                 augmentedContext = await this.#contextAugmenter.retrieveContext(session, message);
+                if (augmentedContext && augmentedContext.includes('Relational Knowledge Graph')) {
+                    this.emit(AgentEvents.GRAPH_CONTEXT_RETRIEVED, {
+                        sessionId: session.id,
+                        context: augmentedContext,
+                        session: session.toJSON()
+                    });
+                }
             } catch (err) {
                 this.emit(AgentEvents.ERROR, { error: err, source: 'context_augmenter', session: session.toJSON() });
             }
+        }
+
+        if (this.#graphMemory && !isSystemTrigger) {
+            try {
+                const userText = this.#extractUserText(message);
+                if (userText) {
+                    const createdTriples = this.#graphMemory.extractAndIngestTriples(session.id, userText);
+                    for (const rel of createdTriples) {
+                        this.emit(AgentEvents.GRAPH_RELATION_CREATED, {
+                            sessionId: session.id,
+                            relation: rel,
+                            session: session.toJSON()
+                        });
+                    }
+                }
+            } catch {}
         }
 
         // ── Auto-Ativação Heurística de Skills no Turno 0 ──
@@ -1814,6 +2040,81 @@ class AgenticCore extends EventEmitter {
             responseText = (options._prefixText + ' ' + (responseText || '')).trim();
         }
 
+        // ── Validação Actor-Critic com Auto-Correção (v4.1) ──
+        if (this.#verificationEngine && this.#verificationEngine.enabled && responseText) {
+            this.emit(AgentEvents.VERIFICATION_START, {
+                candidateText: responseText,
+                session: session.toJSON(),
+                depth
+            });
+
+            const verifResult = await this.#verificationEngine.verify(responseText, {
+                session,
+                depth,
+                reasoning: reasoningText,
+                options
+            });
+
+            const verifRetryCount = options._verifRetryCount || 0;
+            const maxVerifRetries = this.#verificationEngine.maxRetries;
+
+            if (!verifResult.valid) {
+                this.emit(AgentEvents.VERIFICATION_FAILED, {
+                    violations: verifResult.violations,
+                    feedback: verifResult.feedback,
+                    mode: verifResult.mode,
+                    session: session.toJSON(),
+                    depth
+                });
+
+                if (verifRetryCount < maxVerifRetries && depth < this.#maxAgenticLoopTurns) {
+                    this.emit(AgentEvents.VERIFICATION_RETRY, {
+                        attempt: verifRetryCount + 1,
+                        maxRetries: maxVerifRetries,
+                        feedback: verifResult.feedback,
+                        session: session.toJSON()
+                    });
+
+                    const criticCorrectionPrompt = `[System Verification Error / Critic Feedback]:\n${verifResult.feedback}\n\nPlease self-correct and output a revised valid response without the cited error.`;
+
+                    const correctiveContents = [
+                        ...contents,
+                        { role: 'model', parts: [{ text: responseText }] },
+                        { role: 'user', parts: [{ text: criticCorrectionPrompt }] }
+                    ];
+
+                    const retryOptions = {
+                        ...options,
+                        _verifRetryCount: verifRetryCount + 1
+                    };
+
+                    return await this.#agenticLoop(
+                        correctiveContents,
+                        config,
+                        depth + 1,
+                        session,
+                        signal,
+                        localToolsMap,
+                        retryOptions
+                    );
+                }
+            } else {
+                this.emit(AgentEvents.VERIFICATION_PASSED, {
+                    score: verifResult.score,
+                    mode: verifResult.mode,
+                    session: session.toJSON(),
+                    depth
+                });
+            }
+        }
+
+        // ── Ingestão de Grafo a partir da resposta final aprovada (v4.1) ──
+        if (this.#graphMemory && responseText) {
+            try {
+                this.#graphMemory.extractAndIngestTriples(session.id, responseText);
+            } catch {}
+        }
+
         const parsed = {
             sent_at: new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }),
             reasoning: reasoningText,
@@ -2089,6 +2390,36 @@ class AgenticCore extends EventEmitter {
     async #executeTool({ name, args }, session, signal, localToolsMap = null, options = {}) {
         this.emit(AgentEvents.TOOL_CALL, { name, args, session: session.toJSON() });
 
+        // ── Execução Durável: Verificação de Idempotência e Replay (v4.0) ──
+        let idempotencyKey = '';
+        const turnIndex = options?.turnIndex ?? (session.getHistory ? session.getHistory().length : 0);
+        if (this.#checkpointManager) {
+            const check = await this.#checkpointManager.recordToolStart(session.id, turnIndex, name, args);
+            idempotencyKey = check.idempotencyKey;
+            if (check.alreadyExecuted) {
+                this.emit(AgentEvents.TOOL_REPLAYED, {
+                    name,
+                    args,
+                    result: check.cachedResult,
+                    idempotencyKey,
+                    session: session.toJSON(),
+                });
+                this.emit(AgentEvents.TOOL_RESULT, {
+                    name,
+                    args,
+                    result: check.cachedResult,
+                    session: session.toJSON(),
+                    replayed: true,
+                });
+                return {
+                    functionResponse: {
+                        name,
+                        response: { result: check.cachedResult },
+                    },
+                };
+            }
+        }
+
         // ── Verificação de Política de Segurança (Fase 3) ──
         const activePolicy = options?.securityPolicy || this.#securityPolicy;
         if (activePolicy && typeof activePolicy.validateInvocation === 'function') {
@@ -2201,11 +2532,37 @@ class AgenticCore extends EventEmitter {
                     resultText = typeof raw === 'string' ? raw : JSON.stringify(raw);
                 }
                 activeTelemetry?.endSpan(toolSpanId, 'OK');
+
+                if (this.#checkpointManager && idempotencyKey) {
+                    await this.#checkpointManager.commitToolResult(
+                        session.id,
+                        turnIndex,
+                        idempotencyKey,
+                        name,
+                        resultText
+                    ).catch(() => {});
+                    this.emit(AgentEvents.CHECKPOINT_SAVED, {
+                        sessionId: session.id,
+                        idempotencyKey,
+                        toolName: name,
+                        session: session.toJSON(),
+                    });
+                }
             }
         } catch (err) {
             resultText = JSON.stringify({ error: err.message });
             this.emit(AgentEvents.ERROR, { error: err, source: 'tool', name, session: session.toJSON() });
             activeTelemetry?.endSpan(toolSpanId, 'ERROR', {}, err);
+
+            if (this.#checkpointManager && idempotencyKey) {
+                await this.#checkpointManager.recordToolFailure(
+                    session.id,
+                    turnIndex,
+                    idempotencyKey,
+                    name,
+                    err
+                ).catch(() => {});
+            }
         } finally {
             clearTimeout(timer);
             if (signal && abortListener) {
@@ -2231,6 +2588,8 @@ class AgenticCore extends EventEmitter {
         for (const msg of messages) {
             if (typeof msg === 'object' && msg !== null && Array.isArray(msg.parts)) {
                 flatParts.push(...msg.parts.map(p => ({ ...p })));
+            } else if (typeof msg === 'object' && msg !== null && typeof msg.text === 'string') {
+                flatParts.push({ text: msg.text });
             } else {
                 flatParts.push({ text: String(msg) });
             }

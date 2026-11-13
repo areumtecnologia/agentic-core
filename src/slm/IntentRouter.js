@@ -30,6 +30,10 @@ class IntentRouter {
         let raw = '';
         if (typeof textOrContents === 'string') {
             raw = textOrContents;
+        } else if (textOrContents && typeof textOrContents === 'object' && typeof textOrContents.text === 'string') {
+            raw = textOrContents.text;
+        } else if (textOrContents && typeof textOrContents === 'object' && Array.isArray(textOrContents.parts)) {
+            raw = textOrContents.parts.map(p => p.text || '').join(' ').trim();
         } else if (Array.isArray(textOrContents)) {
             const userTurns = textOrContents.filter(c => c.role === 'user' && !c.parts?.some(p => typeof p.text === 'string' && p.text.includes('[System directive')));
             const lastUserTurn = userTurns[userTurns.length - 1];

@@ -140,17 +140,17 @@ async function example() {
   }, {
     text: "Pesquise na web: 'O que é o AgenticCore da Áreum Tecnologia?'",
   },
-  // {
-  //   text: "Finalizar sessão de chat.",
-  // },
-  // {
-  //   text: "O que é isso?",
-  //   attachments: { base64: IMAGE_BASE64, mimeType: 'image/png' }
-  // }, 
-  {
-    text: "Transcreva este áudio:",
-    attachments: { base64: AUDIO_BASE64, mimeType: 'audio/ogg' }
-  }
+    // {
+    //   text: "Finalizar sessão de chat.",
+    // },
+    // {
+    //   text: "O que é isso?",
+    //   attachments: { base64: IMAGE_BASE64, mimeType: 'image/png' }
+    // // }, 
+    // {
+    //   text: "Transcreva este áudio:",
+    //   attachments: { base64: AUDIO_BASE64, mimeType: 'audio/ogg' }
+    // }
   ];
   // Marcar a hora de inicio do turno e quanto tempo ele durou
   const startTime = Date.now();

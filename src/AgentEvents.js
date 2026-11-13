@@ -41,6 +41,40 @@ const AgentEvents = Object.freeze({
     AUDIO_INPUT_PROCESSED: 'audio_input_processed', // Áudio de entrada transcrito e processado
     // ── Limite de Tokens & Geração ──
     TOKEN_LIMIT_REACHED: 'token_limit_reached',     // Modelo atingiu o limite de tokens da geração
+    // ── Execução Durável & Resiliência (v4.0) ──
+    CHECKPOINT_SAVED: 'checkpoint_saved',           // Snapshot do estado ou diário salvo com sucesso
+    CHECKPOINT_RESTORED: 'checkpoint_restored',     // Sessão restaurada a partir de um checkpoint
+    TOOL_REPLAYED: 'tool_replayed',                 // Resultado de tool retornado do cache do diário (idempotência)
+    // ── Sandbox Seguro de Execução (v4.0) ──
+    SANDBOX_EXECUTE: 'sandbox_execute',             // Código/script despachado para ambiente de sandbox
+    SANDBOX_RESULT: 'sandbox_result',               // Retorno de execução em sandbox
+    SANDBOX_VIOLATION: 'sandbox_violation',         // Violação de segurança, timeout ou memória no sandbox
+    // ── Actor-Critic & Verificação Cognitiva (v4.1) ──
+    VERIFICATION_START: 'verification_start',       // Início de validação de resposta candidata
+    VERIFICATION_PASSED: 'verification_passed',     // Resposta aprovada pelo validador/Critic
+    VERIFICATION_FAILED: 'verification_failed',     // Violação ou inconsistência detectada na resposta
+    VERIFICATION_RETRY: 'verification_retry',       // Actor refazendo turno com a crítica construtiva
+    // ── Memória em Grafo de Conhecimento / GraphRAG (v4.1) ──
+    GRAPH_ENTITY_CREATED: 'graph_entity_created',   // Nova entidade registrada no grafo
+    GRAPH_RELATION_CREATED: 'graph_relation_created', // Nova aresta relacional registrada
+    GRAPH_CONTEXT_RETRIEVED: 'graph_context_retrieved', // Subgrafo multi-hop recuperado para o prompt
+    // ── Swarms Colaborativos & A2A (v4.2) ──
+    SWARM_STARTED: 'swarm:started',                 // Enxame iniciado sob uma topologia
+    SWARM_MESSAGE_SENT: 'swarm:message_sent',       // Mensagem enviada entre membros do swarm
+    SWARM_BLACKBOARD_UPDATED: 'swarm:blackboard_updated', // Quadro compartilhado atualizado
+    SWARM_TASK_DISPATCHED: 'swarm:task_dispatched', // Tarefa atribuída a um especialista
+    SWARM_TASK_COMPLETED: 'swarm:task_completed',   // Especialista concluiu tarefa
+    SWARM_COMPLETED: 'swarm:completed',             // Execução global do swarm finalizada
+    // ── Navegação Web & Browser Use (v4.2) ──
+    BROWSER_NAVIGATE: 'browser:navigate',           // Navegação em URL iniciada
+    BROWSER_ACTION: 'browser:action',               // Ação executada na página (clique, digitação, extração)
+    BROWSER_SCREENSHOT: 'browser:screenshot',       // Captura de tela realizada
+    // ── Observabilidade OpenTelemetry GenAI (v4.3) ──
+    OTEL_SPAN_EXPORTED: 'otel:span_exported',       // Span OpenTelemetry GenAI serializado e exportado
+    // ── Trajectory Evals & CI/CD Benchmarking (v4.3) ──
+    EVAL_SUITE_STARTED: 'eval:suite_started',       // Início de bateria de regressão
+    EVAL_SCENARIO_COMPLETED: 'eval:scenario_completed', // Cenário de avaliação concluído
+    EVAL_SUITE_COMPLETED: 'eval:suite_completed'    // Suíte completa de benchmark finalizada
 });
 
 module.exports = { AgentEvents };

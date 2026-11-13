@@ -1,6 +1,6 @@
 # Agentic Core
 
-> **v3.7.2** — Framework profissional para orquestração de Agentes Autônomos em Node.js com suporte a múltiplos provedores redundantes (Google Gemini, OpenAI, Claude, Ollama, Nvidia), **tratamento inteligente de estouro de tokens com auto-continuação transparente (`autoContinueOnLength`)**, **SLM Engine blindado (`OutputSanitizer` com regex Unicode e preservação de listas/links)**, **envio unificado multimodal via `processMessage` com suporte a áudio, voz e resposta TTS (`ttsResponse`)**, **provedores TTS de primeira classe (`GoogleTTS`, `PiperTTS`, `KokoroTTS`, `MagpieTTS`) e constantes enumeradas sem strings mágicas (`VoiceTypes`)**, **auto-extensão com o ecossistema Open Agent Skills (`npx skills` / skills.sh)**, **transbordo humano inteligente omnichannel (`escalate_to_human`)**, **persistência distribuída de sessões (`SessionStore`)**, **raciocínio passo a passo (`reasoningTool`)**, **cálculo determinístico em sandbox (`calculatorTool`)**, **pesquisa web gratuita (`webSearchTool`)**, **streaming em tempo real com `TokenStream`**, **auto-RAG de memória**, observabilidade com `TelemetryProvider`, suporte nativo a MCP e failover automático.
+> **v4.3.0** — Framework profissional para orquestração de Agentes Autônomos em Node.js com suporte a múltiplos provedores redundantes (Google Gemini, OpenAI, Claude, Ollama, Nvidia), **Observabilidade Corporativa OpenTelemetry GenAI (`OtelGenAIBridge`, `OtelExporter`)**, **Framework de Evals & Benchmarking de Trajetórias para CI/CD (`AgentBenchmarkHarness`, `TrajectoryEvaluator`, `EvalReportGenerator`)**, **Swarms Colaborativos Multi-Agente & Protocolo A2A (`AgentSwarm`, `SwarmMessageBus`, `SharedBlackboard`, topologias `Supervisor`, `Pipeline` e `Blackboard`)**, **Navegação Web Autônoma e Browser Use Segura (`BrowserActionTool`, `MockBrowserDriver`, `BaseBrowserDriver`)**, **Motor de Verificação Cognitiva Actor-Critic com Auto-Correção Reflexiva (`VerificationEngine`)**, **Memória em Grafo de Conhecimento Relacional Multi-Hop & GraphRAG (`KnowledgeGraph`, `GraphMemoryStore`)**, **Execução Durável com Checkpointing Transacional & Idempotência (`CheckpointManager` / `ExecutionJournal`)**, **Sandbox Seguro Isolado de Código e Suporte a WebAssembly (`SafeSandboxRunner`, `WasmSandboxRunner`, `E2BSandboxRunner`)**, **tratamento inteligente de estouro de tokens com auto-continuação transparente (`autoContinueOnLength`)**, **SLM Engine blindado (`OutputSanitizer` com regex Unicode e preservação de listas/links)**, **envio unificado multimodal via `processMessage` com suporte a áudio, voz e resposta TTS (`ttsResponse`)**, **provedores TTS de primeira classe (`GoogleTTS`, `PiperTTS`, `KokoroTTS`, `MagpieTTS`) e constantes enumeradas sem strings mágicas (`VoiceTypes`)**, **auto-extensão com o ecossistema Open Agent Skills (`npx skills` / skills.sh)**, **transbordo humano inteligente omnichannel (`escalate_to_human`)**, **persistência distribuída de sessões (`SessionStore`)**, **raciocínio passo a passo (`reasoningTool`)**, **cálculo determinístico em sandbox seguro (`calculatorTool`)**, **pesquisa web gratuita (`webSearchTool`)**, **streaming em tempo real com `TokenStream`**, **auto-RAG de memória**, observabilidade com `TelemetryProvider`, suporte nativo a MCP e failover automático.
 
 ---
 
@@ -8,6 +8,14 @@
 
 | Recurso | Descrição |
 |---|---|
+| **Observabilidade OpenTelemetry GenAI (v4.3)** | Mapeamento automático para as Convenções Semânticas oficiais de GenAI do OpenTelemetry (`OtelGenAIBridge` / `OtelExporter` com payload OTLP v1 canônico). Rastreamento de spans hierárquicos para chamadas de LLM, execuções de ferramentas, verificação Actor-Critic e consultas em grafos, com exportação para coletores corporativos (Datadog, Dynatrace, LangSmith, Phoenix, Grafana Tempo) e buffer in-memory. |
+| **Trajectory Evals & Benchmarking para CI/CD (v4.3)** | Framework automatizado de testes de regressão de agentes (`AgentBenchmarkHarness` e `TrajectoryEvaluator`). Avalia Goal Completion Rate (GCR), similaridade com Golden Trajectories, detecção algorítmica de loops repetitivos (*Loop Detection Score*) e métricas de eficiência de tokens e turnos. Gera relatórios executivos em Markdown (comentários em PRs) e JSON. |
+| **Swarms Colaborativos & Protocolo A2A (v4.2)** | Orquestração de múltiplos agentes especialistas (`AgentSwarm`) com barramento de mensageria assíncrona (`SwarmMessageBus` com direct, broadcast, tópicos e RPC correlacionado) e quadro de estado concorrente (`SharedBlackboard` com locks otimistas e histórico de auditoria). Topologias nativas: **Supervisor-Workers (Hierárquica)**, **Pipeline Sequencial** e **Shared Blackboard**. |
+| **Browser Use & Navegação Segura (v4.2)** | Automação e inspeção de páginas web via `BrowserActionTool` com contrato desacoplado `BaseBrowserDriver` e driver hermético nativo `MockBrowserDriver`. Ações: navegação, cliques, digitação, extração de texto, execução de scripts e captura de tela (screenshots). Blindagem estrita anti-SSRF (bloqueio de IPs de metadados de nuvem e loopback) e proibição de protocolos perigosos. |
+| **Motor de Verificação Actor-Critic & Auto-Correção (v4.1)** | Loop cognitivo de crítica e refatoração (*Actor-Critic Self-Reflection*). Valida saídas sintáticas (JavaScript/Python via sandbox), esquemas estruturados JSON e regras de conformidade de negócio customizadas (`customVerifier`). Em caso de inconformidade, o agente gera um feedback de erro reflexivo e re-executa o turno até a aprovação ou o teto de `maxRetries`. |
+| **Memória em Grafo de Conhecimento & GraphRAG (v4.1)** | Grafo relacional bidirecional nativo (`KnowledgeGraph`) com travessia multi-salto BFS (`multi-hop traversal`). Extração heurística automática de entidades e relações a partir da conversa natural ou chamadas explícitas (`extractAndIngestTriples`). Injeção transparente de subgrafos relacionais no prompt via `ContextAugmenter`. |
+| **Resiliência Transacional & Execução Durável (v4.0)** | Diário de eventos imutável (`ExecutionJournal`) com chaves determinísticas de idempotência em SHA-256. Interceptação prévia de ferramentas concluídas via `tool.replayed` (evitando duplicação de efeitos colaterais como cobranças ou envio de mensagens). Salvamento de checkpoints a cada passo (`checkpointOnStep: true`), recuperação de sessão pós-falha com `agent.recoverAndResumeSession(sid)` e retomada resiliente de nós em grafos de tarefas (`ParallelExecutor`). |
+| **Sandbox Seguro de Execução & WASM (v4.0)** | Isolamento hermético de código com `SafeSandboxRunner` (bloqueio estrito de prototype pollution, sem acesso ao host, interrupção por timeout de CPU), suporte nativo à execução de bytecode WebAssembly via `WasmSandboxRunner` com cotas de páginas de memória e conector para microVMs na nuvem (`E2BSandboxRunner`). Substituição e elevação da segurança do `MathTools`. |
 | **Tratamento Inteligente de Tokens & Auto-continuação (v3.7.2)** | Detecção determinística de estouro de tokens via `finish_reason` dos provedores (`MAX_TOKENS`, `length`), emissão do evento `AgentEvents.TOKEN_LIMIT_REACHED`, metadados de resposta enriquecidos (`finish_reason`, `token_limit_reached`) e costura transparente de respostas truncadas com `autoContinueOnLength: true` (com proteção por `maxAutoContinuations`). |
 | **OutputSanitizer Blindado & Preservação Visual (v3.7.2)** | Sanitização de enumerações repetidas com regex Unicode-aware sem truncamento de palavras, preservação estrita de quebras de linha (`\n`), listas e parágrafos, eliminação de cortes cegos por falta de ponto final, suporte a `sanitizeOutput: false` e restrição de correções fonéticas a interações de voz/áudio. |
 | **Voz, Áudio & TTS de Primeira Classe (v3.7)** | Envio unificado de texto, áudio e anexos diretamente via `processMessage()`. Geração de objeto `ttsResponse` no evento `AgentEvents.RESPONSE` com `.toBase64(true)` (OGG) e `.toBase64()` (WAV). Provedores flexíveis com herança de `BaseTTSProvider` (`model`, `apiKey`, `url`, `voice`): `GoogleTTS` (nuvem, zero consumo de RAM em servidores de 1 a 4 GB), `PiperTTS` (< 50 MB RAM na CPU), `KokoroTTS` (neural 82M) e `MagpieTTS` (NVIDIA NIM). Constantes e enumeradores tipados (`GoogleVoice`, `KokoroVoice`, `PiperVoice`, `MagpieVoice`, `Voice`, `AudioEncoding`, `AudioFormat`, `AudioMimeType`, `TTSProvider`). |
@@ -681,6 +689,16 @@ agent
   .on(AgentEvents.TOKEN_LIMIT_REACHED, ({ finishReason, depth, continuationCount, provider, model }) => {
     console.warn(`[${provider}/${model}] Teto de tokens atingido (${finishReason}) no turno ${depth}. Continuação #${continuationCount}`);
   })
+  .on(AgentEvents.TOOL_REPLAYED, ({ name, args, result }) => console.log(`Tool reaproveitada via idempotência: ${name}`))
+  .on(AgentEvents.CHECKPOINT_SAVED, ({ sessionId, idempotencyKey, toolName }) => console.log(`Checkpoint salvo: ${toolName} (${idempotencyKey.slice(0, 8)})`))
+  .on(AgentEvents.CHECKPOINT_RESTORED, ({ sessionId, recovery }) => console.log(`Sessão restaurada: ${sessionId}. Ferramentas no diário: ${recovery.completedTools.size}`))
+  .on(AgentEvents.VERIFICATION_START, ({ candidate, modes }) => console.log(`Verificando resposta candidata nos modos:`, modes))
+  .on(AgentEvents.VERIFICATION_PASSED, ({ score }) => console.log(`Resposta aprovada pelo Verificador (Score: ${score})`))
+  .on(AgentEvents.VERIFICATION_FAILED, ({ feedback, errors, score }) => console.warn(`Rejeitado pelo Verificador: ${feedback}`))
+  .on(AgentEvents.VERIFICATION_RETRY, ({ retryCount, maxRetries }) => console.log(`Refletindo e tentando novamente (${retryCount}/${maxRetries})...`))
+  .on(AgentEvents.GRAPH_ENTITY_CREATED, ({ entity }) => console.log(`Entidade aprendida no Grafo: ${entity.id} (${entity.type})`))
+  .on(AgentEvents.GRAPH_RELATION_CREATED, ({ relation }) => console.log(`Relação no Grafo: ${relation.sourceId} -[${relation.type}]-> ${relation.targetId}`))
+  .on(AgentEvents.GRAPH_CONTEXT_RETRIEVED, ({ query, subgraphsFound }) => console.log(`GraphRAG injetou ${subgraphsFound} relações para: "${query}"`))
   .on(AgentEvents.RESPONSE, ({ response, reasoning, usageMetadata }) => console.log('Resposta:', response))
   .on(AgentEvents.TOOL_CALL, ({ name, args }) => console.log(`Tool chamada: ${name}`, args))
   .on(AgentEvents.TOOL_RESULT, ({ name, result }) => console.log(`Tool resultado: ${name}`, result))
@@ -942,6 +960,410 @@ const result = await agent.processMessage(sessionId, 'Gere um código em bloco',
 
 ---
 
+## 🔄 Resiliência Transacional & Execução Durável (v4.0)
+
+Em produção, agentes autônomos executam tarefas longas encadeando múltiplas ferramentas (consultas a APIs, cobranças, disparos de mensagens e gravações em banco). Caso o processo Node.js reinicie, sofra deploy ou encontre uma falha de rede temporária no meio do loop, arquiteturas tradicionais enfrentam dois riscos críticos: perda do estado intermediário ou duplicação indevida de efeitos colaterais externos.
+
+A versão **v4.0** do Agentic-Core introduz **Durable Execution com Event Sourcing & Step Checkpointing**:
+
+### 1. Diário de Execução Imutável (`ExecutionJournal`)
+Cada intenção e conclusão de ferramenta é registrada de forma atômica no `SessionStore` (`TOOL_INVOKING` e `TOOL_COMMITTED`), com geração determinística de chaves de idempotência em **SHA-256**:
+
+$$\text{idempotencyKey} = \text{SHA256}(\text{sessionId} + \text{turnIndex} + \text{toolName} + \text{JSON.stringify}(\text{sortedArgs}))$$
+
+Se a mesma ferramenta for invocada novamente durante uma repetição ou retomada de fluxo:
+1. O `CheckpointManager` intercepta a invocação antes que a função real seja executada.
+2. O resultado prévio armazenado no diário é imediatamente retornado (*replay idempotente*).
+3. O evento `AgentEvents.TOOL_REPLAYED` é emitido, evitando cobranças duplicadas ou requisições desnecessárias.
+
+### 2. Configuração & Uso no `AgenticCore`
+
+```javascript
+const { AgenticCore, AgentConfig, InMemorySessionStore, AgentEvents } = require('@areumtecnologia/agentic-core');
+
+const store = new InMemorySessionStore(); // Ou qualquer adaptador SessionStore (Redis, MySQL, etc.)
+
+const agent = new AgenticCore({
+  agent: new AgentConfig('FinanceAgent', 'Empresa', 'Detalhes', 'Assistente Financeiro', 'Processar Pagamentos', 'Instruções'),
+  sessionStore: store,
+  
+  // Ativa a execução durável transacional (v4.0)
+  durable: {
+    enabled: true,
+    checkpointOnStep: true // Persiste checkpoint a cada tool executada
+  }
+});
+
+// Escuta eventos de resiliência e replay
+agent.on(AgentEvents.TOOL_REPLAYED, ({ name, result }) => {
+  console.log(`[Idempotência] Tool "${name}" retornada diretamente do cache do diário.`);
+});
+
+agent.on(AgentEvents.CHECKPOINT_SAVED, ({ toolName, idempotencyKey }) => {
+  console.log(`[Checkpoint] Passo concluído com sucesso: ${toolName}`);
+});
+```
+
+### 3. Recuperação Automática Pós-Queda (`recoverAndResumeSession`)
+
+Caso o servidor caia ou seja reiniciado durante um atendimento, basta recuperar a sessão:
+
+```javascript
+// Recupera o histórico e reconstrói o mapa de ferramentas concluídas no diário
+const { session, recovery } = await agent.recoverAndResumeSession('session-12345');
+
+console.log(`Sessão restaurada! Ferramentas concluídas no diário: ${recovery.completedTools.size}`);
+// O agente retoma de onde parou sem refazer passos já concluídos!
+```
+
+### 4. Resumabilidade em Grafos de Tarefas (`ParallelExecutor`)
+
+O executor de DAGs do Agentic-Core também é durável. Ao executar um grafo passando `checkpointManager` e `sessionId`, nós finalizados são gravados no diário. Ao ser reiniciado após uma interrupção, o executor identifica os nós já concluídos e prossegue apenas com as etapas pendentes:
+
+```javascript
+const { TaskGraph, ParallelExecutor } = require('@areumtecnologia/agentic-core');
+
+const graph = new TaskGraph();
+graph.add({ id: 'consultar_api', fn: async () => ({ status: 'ok', data: 42 }) });
+graph.add({ id: 'processar_dados', dependsOn: ['consultar_api'], fn: async (ctx) => ({ total: ctx.results.consultar_api.data * 2 }) });
+
+const executor = new ParallelExecutor(graph);
+
+// Nós concluídos são persistidos no CheckpointManager
+const results = await executor.execute(graph, {
+  checkpointManager: agent.checkpointManager,
+  sessionId: 'job-pipeline-99'
+});
+```
+
+---
+
+## 🛡️ Sandbox Seguro de Execução & WebAssembly (v4.0)
+
+A execução de scripts, códigos arbitrários e cálculos matemáticos gerados por LLMs apresenta riscos críticos de **Prototype Pollution** e **Remote Code Execution (RCE)**. A v4.0 eleva o patamar de segurança substituindo o uso isolado de `node:vm` por uma arquitetura desacoplada de **Sandboxing Hermético**:
+
+```
+                  ┌───────────────────────┐
+                  │   BaseSandboxRunner   │
+                  └───────────┬───────────┘
+                              │
+          ┌───────────────────┴───────────────────┐
+          ▼                                       ▼
+┌───────────────────────┐               ┌───────────────────────┐
+│   SafeSandboxRunner   │               │   WasmSandboxRunner   │
+│ (In-Memory Hermético) │               │ (WebAssembly Bytecode)│
+│ - Zero acesso ao host │               │ - Quotas de memória   │
+│ - Bloqueio de 10+ RCEs│               │ - Execução binária    │
+│ - Timeout de CPU      │               │ - Isolamento total    │
+└───────────────────────┘               └───────────────────────┘
+```
+
+### 1. `SafeSandboxRunner` (Isolamento em Memória)
+- **Contexto Nulo:** Executa código em um ambiente `Object.create(null)`, impedindo acesso à cadeia de prototype da V8.
+- **Análise Estática de Segurança:** Bloqueia automaticamente tokens e padrões maliciosos como `process`, `require`, `import`, `global`, `globalThis`, `constructor`, `__proto__`, `Function`, `eval`, `child_process`, `fs`, `Buffer` e `Proxy`.
+- **Interrupção de Timeout Real:** Aborta laços infinitos como `while(true)` no limite exato configurado em milissegundos.
+
+### 2. `WasmSandboxRunner` (Execução de WebAssembly)
+Suporta a compilação e execução direta de bytecode WebAssembly (`Uint8Array` ou `Buffer`) com controle estrito do número de páginas de memória alocadas (`maxMemoryPages`), garantindo confinamento em nível de arquitetura de baixo nível.
+
+### 3. Configuração no `AgenticCore` e `MathTools`
+
+```javascript
+const { AgenticCore, AgentConfig, SafeSandboxRunner, WasmSandboxRunner } = require('@areumtecnologia/agentic-core');
+
+const agent = new AgenticCore({
+  agent: new AgentConfig('DataAgent', 'Empresa', 'Detalhes', 'Analista', 'Calcular Métricas', 'Instruções'),
+  
+  // Ativa o sandbox seguro para avaliações e ferramentas de código
+  sandbox: {
+    provider: 'safe', // 'safe' | 'wasm' | 'e2b'
+    timeoutMs: 1500,  // Interrupção estrita após 1.5s
+    memoryLimitMb: 64
+  },
+  
+  calculatorTool: true // A MathTools passa a utilizar automaticamente o SandboxRunner
+});
+```
+
+---
+
+## 🧠 Motor de Verificação Actor-Critic & Self-Reflection (v4.1)
+
+Modelos de linguagem frequentemente geram respostas que contêm pequenos deslizes de sintaxe, schemas JSON malformados ou violações de regras contratuais de negócio. O paradigma **Actor-Critic (Gerador-Verificador)** desacopla o processo: o modelo primário atua como **Actor** (propondo a solução) e o `VerificationEngine` atua como **Critic / Verifier** determinístico independente.
+
+### 1. Modos de Verificação Embutidos
+
+- **`code` (Sintaxe & Execução em Sandbox)**: Extrai blocos de código (` ```javascript ` / ` ```json `) e os avalia via `SandboxRunner` isolado. Se houver `SyntaxError` ou runtime exception, gera um relatório do erro com linha e mensagem.
+- **`schema` (JSON Parsing & Validação Estruturada)**: Garante que blocos JSON estejam perfeitamente formados e atendam a campos obrigatórios.
+- **`customVerifier` (Regras de Negócio Arbitrárias)**: Função síncrona ou assíncrona customizada `({ candidate, session }) => { valid: boolean, errors?: string[], feedback?: string, score?: number }`.
+
+### 2. Auto-Correção Reflexiva no Agentic Loop
+
+Quando `verification: { enabled: true }` está ativo, o `AgenticCore` intercepta a resposta candidata antes da entrega final:
+1. Emite `AgentEvents.VERIFICATION_START`.
+2. Se passar (`valid: true`), emite `AgentEvents.VERIFICATION_PASSED` e entrega a resposta aprovada.
+3. Se falhar (`valid: false`), emite `AgentEvents.VERIFICATION_FAILED` e `AgentEvents.VERIFICATION_RETRY`.
+4. Constrói um prompt de **auto-reflexão corretiva**, orientando o modelo com os erros exatos identificados, e dispara uma re-tentativa sem intervenção do usuário (até `maxRetries`, padrão: 2).
+
+```javascript
+const { AgenticCore, AgentConfig, GoogleProvider, VerificationEngine } = require('@areumtecnologia/agentic-core');
+
+const agent = new AgenticCore({
+  agent: new AgentConfig('DevCriticAgent', 'Empresa', '...', 'Tech Lead', 'Revisar e gerar código', '...'),
+  provider: new GoogleProvider({ apiKey: process.env.GOOGLE_GEMINI_API_KEY }),
+  
+  // Configuração nativa de Actor-Critic
+  verification: {
+    enabled: true,
+    modes: ['code', 'schema'],
+    maxRetries: 2,
+    customVerifier: async (candidate, context) => {
+      // Regra de negócio: não permitir respostas curtas demais em relatórios técnicos
+      if (candidate.length < 50) {
+        return {
+          valid: false,
+          errors: ['A resposta é excessivamente sucinta para um parecer técnico.'],
+          feedback: 'Por favor, elabore sua resposta detalhando os componentes com pelo menos 100 caracteres.'
+        };
+      }
+      return { valid: true, score: 1.0 };
+    }
+  }
+});
+
+const res = await agent.processMessage('sess-critic', 'Crie uma função em JavaScript para somar dois números.');
+console.log(res.response); // Código syntaticamente verificado e aprovado pelo Verifier!
+```
+
+---
+
+## 🕸️ Memória em Grafo de Conhecimento Multi-Hop & GraphRAG (v4.1)
+
+O RAG vetorial clássico recupera pedaços de texto por similaridade semântica direta, mas falha em responder perguntas relacionais como: *"Quem é o gestor do projeto aprovado pelo cliente X?"*. O `KnowledgeGraph` e o `GraphMemoryStore` fornecem representação explícita de conhecimento relacional:
+
+### 1. `KnowledgeGraph` (Grafo Bidirecional Multi-Hop)
+- Representa nós como entidades (`Entity`: id, label, type, properties).
+- Representa arestas como relações direcionadas com propriedades (`Relation`: sourceId, targetId, type, properties, weight).
+- Indexação bidirecional `outgoing` e `incoming` para consultas instantâneas.
+- **Travessia Multi-Hop (BFS)**: `graph.traverse(startId, maxHops)` percorre a rede de nós e arestas até `N` saltos de profundidade.
+
+### 2. `GraphMemoryStore` & Extração Heurística
+- Extração heurística automática a partir de padrões naturais em PT-BR e EN-US (`extrairTriplas`): `(A) gerencia (B)`, `(A) trabalha em (B)`, `(A) aprovou (B)`, `(A) é cliente de (B)`, ou notação explícita `(A) -[RELAÇÃO]-> (B)`.
+- Exportação / importação JSON serializável para persistência durável (`toJSON` / `fromJSON`).
+
+### 3. Integração Automática no `ContextAugmenter` (GraphRAG)
+Quando `graphMemory: true` está ativo no `AgenticCore`:
+- Todo turno do usuário e resposta gerada alimentam o grafo automaticamente.
+- Antes de enviar o prompt ao LLM, o `ContextAugmenter` busca subgrafos relacionados às entidades citadas na mensagem e injeta a seção:
+  ```markdown
+  ### Relational Knowledge Graph (Multi-Hop Context):
+  - (Renan Moreira [PERSON]) -[MANAGES]-> (Projeto Alfa [PROJECT])
+  - (Projeto Alfa [PROJECT]) -[APPROVED_BY]-> (Diretoria [ORGANIZATION])
+  ```
+
+```javascript
+const { AgenticCore, AgentConfig, KnowledgeGraph, GraphMemoryStore } = require('@areumtecnologia/agentic-core');
+
+const agent = new AgenticCore({
+  agent: new AgentConfig('RelationalAgent', 'Empresa', '...', 'Analista de Conhecimento', 'Conectar Fatos', '...'),
+  graphMemory: true, // Ativa extração e injeção automática de grafos relacionais
+});
+
+// Adiciona conhecimento explicitamente (ou deixa o agente extrair via chat)
+agent.graphMemory.addTriple(
+  { id: 'carlos', label: 'Carlos Drummond', type: 'PERSON' },
+  'GERENCIA',
+  { id: 'projeto_x', label: 'Projeto Ômega', type: 'PROJECT' }
+);
+agent.graphMemory.addTriple(
+  { id: 'projeto_x', label: 'Projeto Ômega', type: 'PROJECT' },
+  'CLIENTE',
+  { id: 'acme_corp', label: 'Acme Corporation', type: 'ORGANIZATION' }
+);
+
+// Ao perguntar sobre "Carlos", o ContextAugmenter realiza a travessia multi-hop e injeta as relações no prompt!
+const res = await agent.processMessage('sess-graph', 'Qual é a relação de Carlos com a Acme Corporation?');
+console.log(res.response);
+```
+
+---
+
+## 🐝 Swarms Colaborativos Multi-Agente & Protocolo A2A (v4.2)
+
+Tarefas complexas de engenharia, pesquisa profunda e governança exigem a colaboração de múltiplos agentes especialistas. O módulo `swarm` introduz o protocolo **Agent-to-Agent (A2A)** com barramento de mensageria assíncrona (`SwarmMessageBus`), quadro negro de dados concorrente (`SharedBlackboard`) e três topologias nativas de coordenação:
+
+### 1. Topologias Nativas de Coordenação
+
+- **`SupervisorTopology` (Hierárquica)**: Um agente Líder recebe a meta global, planeja e divide o trabalho entre os membros mais capacitados e sintetiza o resultado final.
+- **`PipelineTopology` (Esteira Sequencial)**: Passagem de bastão em cadeia onde cada especialista refina e enriquece a entrega do anterior (ex: *Pesquisador $\to$ Analista $\to$ Redator*).
+- **`BlackboardTopology` (Colaboração Orientada a Estado)**: Múltiplos agentes leem e escrevem autonomamente no quadro de conhecimento compartilhado até o atingimento de condições de término globais.
+
+### 2. Mensageria A2A e Locking Otimista
+- **`SwarmMessageBus`**: Suporta mensagens diretas ponto a ponto, broadcasts globais (`to: '*'`), canais temáticos (`topics`) e o padrão RPC assíncrono correlacionado (`bus.request(from, to, payload, { timeoutMs })`).
+- **`SharedBlackboard`**: Quadro central com locking otimista (`expectedVersion`), detecção de conflitos de concorrência, histórico completo de auditoria (`auditTrail`) e `appendToList()`.
+
+```javascript
+const { 
+  AgentSwarm, 
+  SupervisorTopology, 
+  PipelineTopology, 
+  SwarmMember,
+  AgenticCore, 
+  AgentConfig, 
+  GoogleProvider 
+} = require('@areumtecnologia/agentic-core');
+
+// Criação do Enxame com Topologia de Pipeline
+const swarm = new AgentSwarm({
+  id: 'research-swarm',
+  topology: new PipelineTopology()
+});
+
+// Registro de Especialistas com perfis e capacidades
+swarm.registerMember('researcher', async (input) => {
+  return { rawData: `Fatos levantados sobre: ${input}` };
+}, { role: 'researcher', capabilities: ['web_search', 'data_gathering'] });
+
+swarm.registerMember('analyst', async (input) => {
+  return { analysis: `Análise Crítica: ${input.rawData} apresenta viabilidade técnica alta.` };
+}, { role: 'analyst', capabilities: ['analysis', 'math'] });
+
+swarm.registerMember('writer', async (input) => {
+  return `Relatório Executivo Final:\n${input.analysis}`;
+}, { role: 'writer', capabilities: ['copywriting'] });
+
+// Execução Coletiva
+const output = await swarm.execute('Computação Quântica em 2026');
+console.log(output.result);
+```
+
+---
+
+## 🌐 Browser Use & Navegação Autônoma Segura (v4.2)
+
+O Agentic Core disponibiliza a ferramenta nativa `browser_action` para que agentes naveguem em páginas web, interajam com formulários, extraiam textos pós-renderização JavaScript e capturem screenshots visuais:
+
+### 1. Ações Suportadas
+- `navigate`: Abre uma URL após sanitização estrita.
+- `click`: Clica em botões e links por seletores CSS ou texto.
+- `type`: Preenche inputs e caixas de texto com dados dinâmicos.
+- `extract`: Extrai o texto limpo de elementos da página ou do body completo.
+- `screenshot`: Captura o estado visual da tela (retornado em Buffer e Base64 PNG).
+- `evaluate`: Executa scripts de inspeção controlados.
+
+### 2. Blindagem Anti-SSRF e Contrato de Drivers
+- **Anti-SSRF Nativo**: Bloqueia automaticamente acessos a `localhost`, `127.0.0.1`, `::1`, IPs de metadados de nuvem (`169.254.169.254` AWS/GCP/Azure) e protocolos não permitidos (`file:`, `javascript:`, `chrome:`).
+- **Driver Agnóstico**: Suporte a `BaseBrowserDriver` com conector leve hermético `MockBrowserDriver` (zero dependências de Chromium) ou drivers em nuvem/Puppeteer.
+
+```javascript
+const { AgenticCore, AgentConfig, GoogleProvider, MockBrowserDriver } = require('@areumtecnologia/agentic-core');
+
+const agent = new AgenticCore({
+  agent: new AgentConfig('WebInspector', 'Empresa', '...', 'Auditor Web', 'Inspecionar Portais', '...'),
+  provider: new GoogleProvider({ apiKey: process.env.GOOGLE_GEMINI_API_KEY }),
+  
+  // Ativa a ferramenta nativa de navegador
+  browserTool: true // utiliza MockBrowserDriver hermético por padrão ou driver customizado
+});
+
+// Ações executadas pelo agente via tool call
+const pageInfo = await agent.browserTool.execute({
+  action: 'navigate',
+  url: 'https://areum.com.br'
+});
+console.log(`Título: ${pageInfo.title}`);
+
+const text = await agent.browserTool.execute({
+  action: 'extract',
+  selector: 'h1'
+});
+console.log(`Conteúdo extraído: ${text.text}`);
+```
+
+---
+
+## 📡 Observabilidade Corporativa OpenTelemetry GenAI (v4.3)
+
+O Agentic Core adota integralmente as [Convenções Semânticas Oficiais de GenAI do consórcio OpenTelemetry](https://opentelemetry.io/docs/specs/semconv/gen-ai/), padronizando o rastreamento hierárquico de inferências de IA, custos de tokens, finish reasons e chamadas de ferramentas:
+
+### 1. Atributos Semânticos Oficiais Mapeados
+- **Sistema & Modelo**: `gen_ai.system` (`gemini`, `openai`, `anthropic`, `ollama`, `nvidia`), `gen_ai.request.model`.
+- **Métricas de Tokens**: `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens`, `gen_ai.usage.total_tokens`.
+- **Operação & Status**: `gen_ai.operation.name` (`chat`, `execute_tool`, `verify`, `graph_query`), `gen_ai.response.finish_reasons`.
+- **Ferramentas Invocadas**: `gen_ai.tool.name`, `gen_ai.tool.input`, `gen_ai.tool.output`.
+
+### 2. Exportação OTLP e Integração no `AgenticCore`
+Compatível nativamente com coletores e APMs corporativos (**Datadog, Dynatrace, LangSmith, Phoenix/Arize, Grafana Tempo**) ou buffer em memória para testes:
+
+```javascript
+const { AgenticCore, AgentConfig, GoogleProvider, OtelGenAIBridge } = require('@areumtecnologia/agentic-core');
+
+// Configuração da ponte OpenTelemetry GenAI
+const otel = new OtelGenAIBridge({
+  serviceName: 'atendimento-agente-ia',
+  endpoint: process.env.OTEL_EXPORTER_OTLP_ENDPOINT // opcional: omita para modo in-memory
+});
+
+const agent = new AgenticCore({
+  agent: new AgentConfig('SupportAgent', 'Empresa', '...', 'Suporte', 'Atender', '...'),
+  provider: new GoogleProvider({ apiKey: process.env.GOOGLE_GEMINI_API_KEY }),
+  otel // Habilita o rastreamento OTLP GenAI de ponta a ponta
+});
+
+// Escuta os spans formatados que são exportados
+agent.on('otel:span_exported', (span) => {
+  console.log(`[OTel GenAI] Span "${span.name}" exportado com traceId: ${span.traceId}`);
+});
+```
+
+---
+
+## 🎯 Framework de Evals & Benchmarking para CI/CD (v4.3)
+
+Garanta a qualidade de produção e evite regressões comportamentais em esteiras de integração contínua (GitHub Actions, GitLab CI). O `AgentBenchmarkHarness` executa cenários estruturados e avalia determinísticamente a qualidade das trajetórias:
+
+### 1. Métricas Algorítmicas Avaliadas
+- **Goal Completion Rate (GCR)**: Aferição objetiva da resposta contra `expectedContains`, regex `expectedPattern`, ausência de termos proibidos `forbiddenContains` e validadores de negócio customizados.
+- **Trajectory Alignment**: Similaridade e ordenação das ferramentas executadas contra a trajetória dourada (*Golden Trajectory*).
+- **Loop Detection Score**: Identificação precoce de armadilhas cognitivas, pensamentos circulares ou invocações repetitivas de ferramentas com os mesmos parâmetros.
+- **Eficiência Computacional**: Consumo de tokens e turnos em relação aos limites orçados.
+
+### 2. Execução da Suíte e Geração de Relatórios (Markdown & JSON)
+
+```javascript
+const { AgentBenchmarkHarness, AgenticCore, AgentConfig, GoogleProvider } = require('@areumtecnologia/agentic-core');
+
+const harness = new AgentBenchmarkHarness({
+  suiteName: 'Suíte de Regressão Financeira',
+  agentFactory: () => new AgenticCore({
+    agent: new AgentConfig('FinanceBot', 'Empresa', '...', 'Analista', 'Calcular', '...'),
+    provider: new GoogleProvider({ apiKey: process.env.GOOGLE_GEMINI_API_KEY }),
+    calculatorTool: true
+  }),
+  scenarios: [
+    {
+      id: 'tax_calculation',
+      name: 'Cálculo de ICMS e Frete',
+      prompt: 'Calcule o ICMS de 18% sobre R$ 1.500,00 e some frete de R$ 50,00.',
+      expectedContains: ['320'],
+      goldenTrajectory: ['calculate_expression'],
+      maxAllowedTurns: 2,
+      maxAllowedTokens: 500
+    }
+  ]
+});
+
+// Executa a bateria de benchmark
+const results = await harness.run();
+
+console.log(`Taxa de Aprovação: ${results.passRate}%`);
+
+// Relatório em Markdown pronto para ser comentado em Pull Requests no GitHub!
+console.log(results.markdownSummary);
+```
+
+---
+
 ## 📁 Estrutura do Projeto
 
 ```
@@ -969,7 +1391,12 @@ agentic-core/
 │   │   ├── SkillSubAgent.js              # Sub-agente especialista ancorado em diretrizes de skill
 │   │   └── SkillImpactAnalytics.js       # Telemetria, latência de scripts, tokens e scoring de eficiência
 │   ├── streaming/                        # Streaming em tempo real (TokenStream)
-│   ├── telemetry/                        # Observabilidade e tracing (TelemetryProvider)
+│   ├── telemetry/                        # Observabilidade e tracing (TelemetryProvider, OtelGenAIBridge, OtelExporter)
+│   ├── evaluation/                       # Trajectory Evals & CI/CD Benchmarking (v4.3)
+│   │   ├── index.js                      # Exportações do módulo de avaliação
+│   │   ├── TrajectoryEvaluator.js        # Métricas algorítmicas de GCR, alinhamento e detecção de loops
+│   │   ├── EvalReportGenerator.js        # Gerador de relatórios executivos em Markdown e JSON
+│   │   └── AgentBenchmarkHarness.js      # Orquestrador de testes de regressão contínua
 │   ├── tools/                            # Sistema de ferramentas embutidas
 │   │   ├── index.js                      # Exportações do sistema de ferramentas
 │   │   ├── ToolRegistry.js               # Registro e descoberta unificada de ferramentas
@@ -986,10 +1413,41 @@ agentic-core/
 │   │       └── communication.js          # Ferramentas de comunicação
 │   ├── mcp/                              # Protocolo MCP (Client, Server, Manager)
 │   ├── memory/                           # Memória (Working, Compactor, Episodic, Semantic, ContextAugmenter)
+│   │   ├── graph/                        # Knowledge Graph & GraphRAG (KnowledgeGraph, GraphMemoryStore)
+│   │   │   ├── index.js                  # Exportações do módulo de grafo
+│   │   │   ├── KnowledgeGraph.js         # Grafo bidirecional em memória e travessia BFS multi-hop
+│   │   │   └── GraphMemoryStore.js       # Extração heurística de triplas e enriquecimento de subgrafos
+│   │   ├── ContextAugmenter.js           # Injeção automática de memórias e subgrafos relacionais
+│   │   └── ...
+│   ├── verification/                     # Motor de Verificação Actor-Critic & Self-Reflection
+│   │   ├── index.js                      # Exportações do módulo de verificação
+│   │   └── VerificationEngine.js         # Verificador determinístico de código, schemas e regras customizadas
+│   ├── swarm/                            # Swarms Colaborativos & Protocolo A2A (v4.2)
+│   │   ├── index.js                      # Exportações do módulo de swarm
+│   │   ├── AgentSwarm.js                 # Orquestrador central do enxame de agentes
+│   │   ├── SwarmMessageBus.js            # Barramento de mensageria assíncrona A2A (Direct, Broadcast, Topics, RPC)
+│   │   ├── SharedBlackboard.js           # Quadro compartilhado com locking otimista e auditoria
+│   │   ├── SwarmMember.js                # Wrapper de membro do enxame com perfil de competência
+│   │   └── topologies/                   # Topologias de coordenação (Pipeline, Supervisor, Blackboard)
+│   ├── browser/                          # Browser Use & Navegação Autônoma Segura (v4.2)
+│   │   ├── index.js                      # Exportações do módulo de browser
+│   │   ├── BaseBrowserDriver.js          # Contrato abstrato para drivers de navegador
+│   │   ├── MockBrowserDriver.js          # Driver hermético nativo sem dependências de Chromium
+│   │   └── BrowserActionTool.js          # Ferramenta nativa do agente protegida com anti-SSRF
 │   ├── orchestrator/                     # Orquestração (TaskGraph, TaskNode, ParallelExecutor, Orchestrator)
 │   ├── persistence/                      # Persistência (SessionStore, InMemorySessionStore)
 │   ├── platform/                         # Multi-tenancy (PlatformManager)
 │   ├── providers/                        # Providers (Google, OpenAI, Anthropic, Ollama, Nvidia)
+│   ├── durable/                          # Execução Durável & Resiliência (ExecutionJournal, CheckpointManager)
+│   │   ├── index.js                      # Exportações do módulo durável
+│   │   ├── ExecutionJournal.js           # Event sourcing imutável e chaves de idempotência em SHA-256
+│   │   └── CheckpointManager.js          # Interceptação de replay idempotente e recuperação de sessão
+│   ├── sandbox/                          # Sandbox Seguro de Execução & WASM (Safe, Wasm, E2B)
+│   │   ├── index.js                      # Exportações do módulo sandbox
+│   │   ├── BaseSandboxRunner.js          # Contrato abstrato de execução isolada
+│   │   ├── SafeSandboxRunner.js          # Isolamento em memória (null-prototype, proteção anti-RCE e timeout)
+│   │   ├── WasmSandboxRunner.js          # Compilação e execução nativa de bytecode WebAssembly
+│   │   └── E2BSandboxRunner.js           # Conector para microVMs descartáveis na nuvem (Python/Bash)
 │   └── audio/                            # Áudio, Voz & TTS (GoogleTTS, PiperTTS, KokoroTTS, MagpieTTS, VoiceGateway, VoiceTypes, TTSResponse)
 │       ├── index.js                      # Exportações do módulo de áudio
 │       ├── BaseTTSProvider.js            # Contrato abstrato para provedores de voz (model, apiKey, url, voice)
@@ -1001,6 +1459,14 @@ agentic-core/
 │       ├── VoiceGateway.js               # Orquestrador bidirecional (STT + TTS)
 │       └── VoiceTypes.js                 # Constantes e enums tipados (GoogleVoice, KokoroVoice, PiperVoice, MagpieVoice, etc.)
 ├── tests/
+│   ├── test_otel_genai.js                # Validação de OtelGenAIBridge, convenções semânticas GenAI e OtelExporter
+│   ├── test_trajectory_evals.js          # Validação de TrajectoryEvaluator, AgentBenchmarkHarness e relatórios CI/CD
+│   ├── test_swarm.js                     # Validação de AgentSwarm, SwarmMessageBus, SharedBlackboard e topologias A2A
+│   ├── test_browser_action.js            # Validação de MockBrowserDriver, blindagem anti-SSRF e ferramenta browser_action
+│   ├── test_graph_memory.js              # Validação de KnowledgeGraph, travessia BFS multi-hop e GraphRAG
+│   ├── test_verification_engine.js       # Validação de VerificationEngine, verificação de código e loop Actor-Critic
+│   ├── test_durable_execution.js         # Validação de idempotência SHA-256, CheckpointManager e resumabilidade de grafos
+│   ├── test_sandbox.js                   # Validação de SafeSandboxRunner, bloqueio de prototype escape e WASM bytecode
 │   ├── test_tts_response_and_unified_process_message.js # Validação de TTSResponse, parâmetros url/model/apiKey e processMessage unificado
 │   ├── test_google_tts.js                # Validação de síntese em nuvem com GoogleTTS e GoogleVoice
 │   ├── test_piper_tts.js                 # Validação de motor ultra-leve com PiperTTS e PiperVoice
@@ -1029,8 +1495,24 @@ agentic-core/
 ## 🧪 Testes
 
 ```bash
-# Executar suíte padrão completa
+# Executar suíte padrão completa (23 baterias de testes integradas)
 npm test
+
+# Executar suíte da Fase 4: OpenTelemetry GenAI e Trajectory Evals (v4.3)
+npm run test:otel     # Valida convenções semânticas OTel GenAI e exportador OTLP
+npm run test:evals    # Valida harness de benchmark, detecção de loops e relatórios
+
+# Executar suíte da Fase 3: Swarms Colaborativos e Browser Use (v4.2)
+node tests/test_swarm.js
+node tests/test_browser_action.js
+
+# Executar suíte da Fase 2: Actor-Critic e Graph Memory (v4.1)
+node tests/test_verification_engine.js
+node tests/test_graph_memory.js
+
+# Executar suíte da Fase 1: Execução durável e sandbox v4.0
+node tests/test_durable_execution.js
+node tests/test_sandbox.js
 
 # Executar suíte de testes de voz e áudio
 npm run test:tts      # Valida TTSResponse (.toBase64 OGG/WAV), parâmetros url/apiKey e processMessage unificado

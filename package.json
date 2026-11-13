@@ -1,6 +1,6 @@
 {
   "name": "@areumtecnologia/agentic-core",
-  "version": "3.7.1",
+  "version": "3.7.2",
   "description": "Framework profissional para orquestração de Agentes Autônomos em Node.js com suporte multi-provedor (Gemini, OpenAI, Anthropic, Ollama, Nvidia), streaming em tempo real, auto-RAG de memória, políticas de segurança, failover automático e telemetria nativa.",
   "license": "ISC",
   "author": "Áreum Tecnologia",
@@ -35,7 +35,9 @@
     "test:reasoning": "node tests/test_reasoning_tool.js",
     "test:math": "node tests/test_math_tool.js",
     "test:web": "node tests/test_web_search_tool.js",
-    "start": "node tests/test.js"
+    "start": "node tests/test.js",
+    "ide": "node tests/autobot-ide/server.js",
+    "ide:app": "node tests/autobot-ide/desktop.js"
   },
   "dependencies": {
     "@google/genai": "^2.9.0",

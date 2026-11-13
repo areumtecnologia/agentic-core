@@ -22,17 +22,21 @@ class OutputSanitizer {
         cleaned = cleaned.replace(/\{"success":\s*true,\s*"result":\s*([\d\.\-]+)\}/g, '$1');
 
         // 2. Remove itens repetidos em enumerações/listas (ex: "São Paulo, São Paulo, São Paulo...")
-        cleaned = cleaned.replace(/([^,\.;\n]+)(?:,\s*\1)+/gi, '$1');
+        // Utiliza limites Unicode para garantir que apenas itens/palavras inteiras repetidas sejam tratadas,
+        // evitando casar com fragmentos internos de palavras antes ou depois da vírgula.
+        cleaned = cleaned.replace(/(?<![\p{L}\p{N}])([\p{L}\p{N}]+(?:\s+[\p{L}\p{N}]+)*)(?:,\s*\1(?=(?:[,\.;\n\s]|$)))+/giu, '$1');
 
         // 3. Trunca repetição consecutiva de qualquer frase/bloco com 10+ caracteres (2+ vezes consecutivas)
         cleaned = cleaned.replace(/(.{10,}?)(?:\s*,?\s*\1){2,}/gis, '$1');
 
-        // 4. Limita sentenças redundantes repetidas dentro do mesmo texto
-        const sentences = cleaned.split(/(?<=[.!?])\s+/);
-        if (sentences.length > 3) {
+        // 4. Limita sentenças redundantes repetidas dentro do mesmo texto preservando separadores e quebras de linha
+        const parts = cleaned.split(/((?<=[.!?])\s+)/);
+        if (parts.length > 5) {
             const seen = new Map();
             const deduplicated = [];
-            for (const s of sentences) {
+            for (let i = 0; i < parts.length; i += 2) {
+                const s = parts[i];
+                const delim = parts[i + 1] || '';
                 const trimmed = s.trim().toLowerCase();
                 if (trimmed.length > 15) {
                     const count = seen.get(trimmed) || 0;
@@ -40,16 +44,11 @@ class OutputSanitizer {
                     seen.set(trimmed, count + 1);
                 }
                 deduplicated.push(s);
+                if (i + 1 < parts.length) {
+                    deduplicated.push(delim);
+                }
             }
-            cleaned = deduplicated.join(' ');
-        }
-
-        // 5. Se o texto foi interrompido abruptamente sem pontuação final no final da geração (estouro de tokens)
-        if (cleaned.length > 40 && !/[.!?]$/.test(cleaned.trim())) {
-            const lastPeriod = Math.max(cleaned.lastIndexOf('.'), cleaned.lastIndexOf('!'), cleaned.lastIndexOf('?'));
-            if (lastPeriod > cleaned.length * 0.6) {
-                cleaned = cleaned.substring(0, lastPeriod + 1);
-            }
+            cleaned = deduplicated.join('');
         }
 
         return cleaned.trim();

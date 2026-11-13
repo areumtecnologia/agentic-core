@@ -87,6 +87,11 @@ class AgenticCore extends EventEmitter {
         return this.#providers[this.#activeProviderIndex];
     }
 
+    /** Retorna a instância do provedor LLM ativo. */
+    get activeProvider() {
+        return this.#providers[this.#activeProviderIndex];
+    }
+
     /**
      * @param {object} options
      * @param {BaseProvider} [options.provider]               Provedor de IA (GoogleProvider, OpenAIProvider, etc.)
@@ -860,6 +865,18 @@ class AgenticCore extends EventEmitter {
             this.#builtConfig = null; // invalida cache
         }
         return deleted;
+    }
+
+    /**
+     * Retorna a lista de todas as ferramentas registradas no agente.
+     * @returns {Array<{ name: string, description: string, parameters: object }>}
+     */
+    getRegisteredTools() {
+        return Array.from(this.#toolRegistry.values()).map(t => ({
+            name: t.declaration.name,
+            description: t.declaration.description,
+            parameters: t.declaration.parameters,
+        }));
     }
 
     // ── Core: processMessage & processMessageStream ──────────────────────────
@@ -1720,11 +1737,12 @@ class AgenticCore extends EventEmitter {
             reasoningText = this.#reasoningTool.getFormattedReasoning(session.id);
         }
 
-        responseText = this.#sanitizeRepetitiveText(responseText);
-        reasoningText = this.#sanitizeRepetitiveText(reasoningText);
+        if (options.sanitizeOutput !== false) {
+            responseText = this.#sanitizeRepetitiveText(responseText);
+            reasoningText = this.#sanitizeRepetitiveText(reasoningText);
+        }
 
-        if (responseText && options.phoneticSanitization !== false) {
-            const { OutputSanitizer } = require('./slm/OutputSanitizer');
+        if (responseText && (options.phoneticSanitization === true || options.isVoice === true || options.isAudio === true)) {
             responseText = OutputSanitizer.sanitizeTranscribedSpeech(responseText, options.phoneticDictionary || {});
         }
 

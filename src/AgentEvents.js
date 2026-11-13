@@ -39,6 +39,8 @@ const AgentEvents = Object.freeze({
     // ── Áudio & Síntese de Voz (Kokoro-82M / Nemotron Omni) ──
     AUDIO_OUTPUT: 'audio_output',                   // Áudio de resposta gerado via TTS (Kokoro 82M)
     AUDIO_INPUT_PROCESSED: 'audio_input_processed', // Áudio de entrada transcrito e processado
+    // ── Limite de Tokens & Geração ──
+    TOKEN_LIMIT_REACHED: 'token_limit_reached',     // Modelo atingiu o limite de tokens da geração
 });
 
 module.exports = { AgentEvents };

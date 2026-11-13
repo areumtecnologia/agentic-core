@@ -1,6 +1,6 @@
 # Agentic Core
 
-> **v3.7.0** — Framework profissional para orquestração de Agentes Autônomos em Node.js com suporte a múltiplos provedores redundantes (Google Gemini, OpenAI, Claude, Ollama, Nvidia), **envio unificado multimodal via `processMessage` com suporte a áudio, voz e resposta TTS (`ttsResponse`)**, **provedores TTS de primeira classe (`GoogleTTS`, `PiperTTS`, `KokoroTTS`, `MagpieTTS`) e constantes enumeradas sem strings mágicas (`VoiceTypes`)**, **auto-extensão com o ecossistema Open Agent Skills (`npx skills` / skills.sh)**, **transbordo humano inteligente omnichannel (`escalate_to_human`)**, **SLM Engine modularizado (`IntentRouter` e `OutputSanitizer`)**, **persistência distribuída de sessões (`SessionStore`)**, **raciocínio passo a passo (`reasoningTool`)**, **cálculo determinístico em sandbox (`calculatorTool`)**, **pesquisa web gratuita (`webSearchTool`)**, **streaming em tempo real com `TokenStream`**, **auto-RAG de memória**, observabilidade com `TelemetryProvider`, suporte nativo a MCP e failover automático.
+> **v3.7.2** — Framework profissional para orquestração de Agentes Autônomos em Node.js com suporte a múltiplos provedores redundantes (Google Gemini, OpenAI, Claude, Ollama, Nvidia), **tratamento inteligente de estouro de tokens com auto-continuação transparente (`autoContinueOnLength`)**, **SLM Engine blindado (`OutputSanitizer` com regex Unicode e preservação de listas/links)**, **envio unificado multimodal via `processMessage` com suporte a áudio, voz e resposta TTS (`ttsResponse`)**, **provedores TTS de primeira classe (`GoogleTTS`, `PiperTTS`, `KokoroTTS`, `MagpieTTS`) e constantes enumeradas sem strings mágicas (`VoiceTypes`)**, **auto-extensão com o ecossistema Open Agent Skills (`npx skills` / skills.sh)**, **transbordo humano inteligente omnichannel (`escalate_to_human`)**, **persistência distribuída de sessões (`SessionStore`)**, **raciocínio passo a passo (`reasoningTool`)**, **cálculo determinístico em sandbox (`calculatorTool`)**, **pesquisa web gratuita (`webSearchTool`)**, **streaming em tempo real com `TokenStream`**, **auto-RAG de memória**, observabilidade com `TelemetryProvider`, suporte nativo a MCP e failover automático.
 
 ---
 
@@ -8,6 +8,8 @@
 
 | Recurso | Descrição |
 |---|---|
+| **Tratamento Inteligente de Tokens & Auto-continuação (v3.7.2)** | Detecção determinística de estouro de tokens via `finish_reason` dos provedores (`MAX_TOKENS`, `length`), emissão do evento `AgentEvents.TOKEN_LIMIT_REACHED`, metadados de resposta enriquecidos (`finish_reason`, `token_limit_reached`) e costura transparente de respostas truncadas com `autoContinueOnLength: true` (com proteção por `maxAutoContinuations`). |
+| **OutputSanitizer Blindado & Preservação Visual (v3.7.2)** | Sanitização de enumerações repetidas com regex Unicode-aware sem truncamento de palavras, preservação estrita de quebras de linha (`\n`), listas e parágrafos, eliminação de cortes cegos por falta de ponto final, suporte a `sanitizeOutput: false` e restrição de correções fonéticas a interações de voz/áudio. |
 | **Voz, Áudio & TTS de Primeira Classe (v3.7)** | Envio unificado de texto, áudio e anexos diretamente via `processMessage()`. Geração de objeto `ttsResponse` no evento `AgentEvents.RESPONSE` com `.toBase64(true)` (OGG) e `.toBase64()` (WAV). Provedores flexíveis com herança de `BaseTTSProvider` (`model`, `apiKey`, `url`, `voice`): `GoogleTTS` (nuvem, zero consumo de RAM em servidores de 1 a 4 GB), `PiperTTS` (< 50 MB RAM na CPU), `KokoroTTS` (neural 82M) e `MagpieTTS` (NVIDIA NIM). Constantes e enumeradores tipados (`GoogleVoice`, `KokoroVoice`, `PiperVoice`, `MagpieVoice`, `Voice`, `AudioEncoding`, `AudioFormat`, `AudioMimeType`, `TTSProvider`). |
 | **Open Agent Skills (`npx skills`)** | Suporte nativo ao ecossistema aberto de skills ([skills.sh](https://skills.sh/)). O agente pesquisa (`skills_search`), instala dinamicamente pacotes (`skills_install`), injeta instruções especializadas sob demanda via *lazy loading* (`skills_load`) e executa scripts de automação (`skills_execute_script`) com allowlist de repositórios confiáveis (`trustedOwners`). |
 | **Human-in-the-Loop & Handover (v3.4)** | `handoverTool: true` fornece a ferramenta `escalate_to_human`. Gera briefing executivo automático para atendentes humanos, pausa a sessão (`session.isPaused`), bloqueia consumo desnecessário de tokens do LLM e emite eventos `AgentEvents.HUMAN_HANDOVER`. |
@@ -676,6 +678,9 @@ agent
   .on(AgentEvents.SESSION_EXPIRED, ({ session }) => console.log(`Sessão expirada: ${session.id}`))
   .on(AgentEvents.SESSION_CLEARED, ({ session, reason }) => console.log(`Sessão limpa: ${session.id}`))
   .on(AgentEvents.TURN_START, ({ depth, session }) => console.log(`Turno ${depth} iniciado`))
+  .on(AgentEvents.TOKEN_LIMIT_REACHED, ({ finishReason, depth, continuationCount, provider, model }) => {
+    console.warn(`[${provider}/${model}] Teto de tokens atingido (${finishReason}) no turno ${depth}. Continuação #${continuationCount}`);
+  })
   .on(AgentEvents.RESPONSE, ({ response, reasoning, usageMetadata }) => console.log('Resposta:', response))
   .on(AgentEvents.TOOL_CALL, ({ name, args }) => console.log(`Tool chamada: ${name}`, args))
   .on(AgentEvents.TOOL_RESULT, ({ name, result }) => console.log(`Tool resultado: ${name}`, result))
@@ -875,6 +880,64 @@ const gateway = new VoiceGateway({
 
 // Síntese direta
 const audioBuffer = await gateway.textToSpeech('Olá, seu pedido foi confirmado com sucesso!');
+```
+
+---
+
+## 🧠 Tratamento Inteligente de Estouro de Tokens (v3.7.2)
+
+Em versões anteriores, heurísticas baseadas em pontuação final tentavam inferir cortes de texto, o que acabava mutilando e-mails, URLs e respostas legítimas sem ponto final. Na **v3.7.2**, a gestão de estouro de tokens passa a ser orientada pelo **status determinístico retornado pelos provedores de IA** (`finish_reason` / `finishReason`):
+
+- **Google Gemini**: `finishReason === 'MAX_TOKENS'`
+- **OpenAI / Groq / Ollama / Nvidia**: `finish_reason === 'length'`
+- **Anthropic Claude**: `stop_reason === 'max_tokens'` (normalizado para `'MAX_TOKENS'`)
+
+### 1. Detecção, Telemetria & Evento Oficial
+
+Sempre que um modelo atinge o teto configurado de tokens (`maxOutputTokens`), o `AgenticCore` emite o evento `AgentEvents.TOKEN_LIMIT_REACHED` e registra o evento no span de telemetria ativo:
+
+```javascript
+const { AgenticCore, AgentEvents } = require('@areumtecnologia/agentic-core');
+
+agent.on(AgentEvents.TOKEN_LIMIT_REACHED, ({ finishReason, depth, continuationCount, provider, model }) => {
+  console.warn(`[${provider}/${model}] Teto de tokens atingido (${finishReason}). Continuação #${continuationCount}`);
+});
+```
+
+A resposta retornada por `processMessage()` inclui metadados explícitos sobre o status da geração:
+
+```javascript
+const result = await agent.processMessage(sessionId, 'Gere um relatório analítico detalhado');
+
+console.log('Motivo de término:', result.finish_reason);              // 'STOP' ou 'MAX_TOKENS'
+console.log('Limite de tokens atingido:', result.token_limit_reached); // true ou false
+```
+
+### 2. Auto-continuação Transparente (`autoContinueOnLength`)
+
+Para fluxos onde respostas longas não devem ser cortadas pela metade (como geração de relatórios extensos ou documentações), o agente pode continuar a geração automaticamente nos bastidores, costurando as partes em uma única resposta limpa para o usuário final:
+
+```javascript
+const agent = new AgenticCore({
+  provider: new OpenAIProvider({ apiKey: process.env.OPENAI_API_KEY, model: 'gpt-4o' }),
+  autoContinueOnLength: true,   // Ativa continuação transparente nos bastidores
+  maxAutoContinuations: 2       // Limite de segurança contra loops de tokens (padrão: 2)
+});
+
+// Ou ative por chamada individual em processMessage():
+const result = await agent.processMessage(sessionId, 'Gere uma análise comparativa', {}, {
+  autoContinueOnLength: true
+});
+```
+
+### 3. Opções de Sanitização de Saída (`sanitizeOutput`)
+
+O `OutputSanitizer` opera de maneira blindada com regex Unicode-aware, preservando estritamente quebras de linha (`\n`), listas markdown, URLs, e-mails e parágrafos sem cortes cegos. Caso sua aplicação necessite receber a resposta 100% crua (raw) gerada pelo LLM:
+
+```javascript
+const result = await agent.processMessage(sessionId, 'Gere um código em bloco', {}, {
+  sanitizeOutput: false // Desativa qualquer rotina de pós-processamento de texto
+});
 ```
 
 ---

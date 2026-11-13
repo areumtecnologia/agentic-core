@@ -121,10 +121,14 @@ class OpenAIProvider extends BaseProvider {
 
         let accumulatedContent = '';
         let accumulatedReasoning = '';
+        let streamFinishReason = null;
         const toolCallsMap = new Map(); // index -> { id, name, arguments }
 
         for await (const chunk of stream) {
             const choice = chunk.choices?.[0];
+            if (choice?.finish_reason) {
+                streamFinishReason = choice.finish_reason;
+            }
             const delta = choice?.delta;
             if (!delta) continue;
 
@@ -217,6 +221,7 @@ class OpenAIProvider extends BaseProvider {
 
         const fullResponse = {
             candidates: [{
+                finishReason: streamFinishReason || 'STOP',
                 content: {
                     role: 'model',
                     parts
@@ -521,6 +526,7 @@ class OpenAIProvider extends BaseProvider {
 
         return {
             candidates: [{
+                finishReason: choice.finish_reason || 'STOP',
                 content: {
                     role: 'model',
                     parts,

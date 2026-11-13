@@ -298,9 +298,11 @@ class AnthropicProvider extends BaseProvider {
 
         const inputTokens = data.usage?.input_tokens ?? 0;
         const outputTokens = data.usage?.output_tokens ?? 0;
+        const finishReason = data.stop_reason === 'max_tokens' ? 'MAX_TOKENS' : (data.stop_reason === 'end_turn' ? 'STOP' : data.stop_reason || 'STOP');
 
         return {
             candidates: [{
+                finishReason,
                 content: {
                     role: 'model',
                     parts,

@@ -80,6 +80,9 @@ class AgenticCore extends EventEmitter {
     // ── Suporte a Áudio & TTS de Primeira Classe (GoogleTTS, PiperTTS, KokoroTTS, etc.) ──
     #ttsProvider = null;
     #ttsConfig = null;
+    // ── Tratamento Inteligente de Estouro de Tokens & Auto-continuação ──
+    #autoContinueOnLength = false;
+    #maxAutoContinuations = 2;
 
 
 
@@ -160,6 +163,8 @@ class AgenticCore extends EventEmitter {
         ttsProvider = null,
         tts = null,
         audio = null,
+        autoContinueOnLength = false,
+        maxAutoContinuations = 2,
     } = {}) {
 
         super();
@@ -269,6 +274,8 @@ class AgenticCore extends EventEmitter {
         this.#successDelayMs = successDelayMs;
         this.#promptTier = promptTier;
         this.#securityToolOption = securityTool;
+        this.#autoContinueOnLength = autoContinueOnLength;
+        this.#maxAutoContinuations = maxAutoContinuations;
 
         // ── Provedor de Síntese de Voz (TTS): primeira classe (GoogleTTS, PiperTTS, KokoroTTS, etc.) ──
         const rawTTS = ttsProvider || tts || (audio && (audio.ttsProvider || audio.tts));
@@ -1400,6 +1407,29 @@ class AgenticCore extends EventEmitter {
             this.emit(AgentEvents.ERROR, { error: err, session: session.toJSON() });
             throw err;
         }
+
+        const rawFinishReason = candidate.finishReason || 'STOP';
+        const isTokenExhausted = rawFinishReason === 'MAX_TOKENS' || rawFinishReason === 'length' || rawFinishReason === 'max_tokens';
+        const finishReason = isTokenExhausted ? 'MAX_TOKENS' : (rawFinishReason ? String(rawFinishReason).toUpperCase() : 'STOP');
+
+        if (isTokenExhausted) {
+            const activeTelemetry = options.telemetry || this.#telemetry;
+            activeTelemetry?.recordEvent?.('token_limit_reached', {
+                finishReason,
+                sessionId: session.id,
+                depth,
+                model: this.activeProvider?.model,
+                provider: this.activeProvider?.getName?.()
+            });
+            this.emit(AgentEvents.TOKEN_LIMIT_REACHED, {
+                session: session.toJSON(),
+                finishReason,
+                depth,
+                continuationCount: options._continuationCount || 0,
+                model: this.activeProvider?.model,
+                provider: this.activeProvider?.getName?.()
+            });
+        }
         const parts = candidate.content?.parts ?? [];
         const functionCallParts = parts.filter(p => p.functionCall);
 
@@ -1746,10 +1776,50 @@ class AgenticCore extends EventEmitter {
             responseText = OutputSanitizer.sanitizeTranscribedSpeech(responseText, options.phoneticDictionary || {});
         }
 
+        // ── Auto-continuação Transparente se o modelo atingiu o teto de tokens ──
+        const autoContinue = options.autoContinueOnLength ?? this.#autoContinueOnLength ?? false;
+        const maxContinuations = options.maxAutoContinuations ?? this.#maxAutoContinuations ?? 2;
+        const continuationCount = options._continuationCount || 0;
+
+        if (isTokenExhausted && autoContinue && continuationCount < maxContinuations) {
+            const isEn = this.#isEnglish(options?.agent || session);
+            const continuePrompt = isEn
+                ? 'Continue generating exactly from where you stopped. Do not repeat previous text.'
+                : 'Continue gerando exatamente de onde parou. Não repita o texto anterior.';
+
+            const intermediateContents = [
+                ...contents,
+                { role: 'model', parts: [{ text: responseText }] },
+                { role: 'user', parts: [{ text: continuePrompt }] }
+            ];
+
+            const continuationOptions = {
+                ...options,
+                _continuationCount: continuationCount + 1,
+                _prefixText: ((options._prefixText ? options._prefixText + ' ' : '') + (responseText || '')).trim()
+            };
+
+            return await this.#agenticLoop(
+                intermediateContents,
+                config,
+                depth + 1,
+                session,
+                signal,
+                localToolsMap,
+                continuationOptions
+            );
+        }
+
+        if (options._prefixText) {
+            responseText = (options._prefixText + ' ' + (responseText || '')).trim();
+        }
+
         const parsed = {
             sent_at: new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }),
             reasoning: reasoningText,
             response: responseText,
+            finish_reason: finishReason,
+            token_limit_reached: isTokenExhausted,
             vulnerability_exploration_attempts: session.vulnerabilityCount,
         };
 

@@ -48,7 +48,7 @@ const {
 const { SubAgent } = require('./SubAgent');
 const { Orchestrator, TaskGraph, ParallelExecutor, TaskNode } = require('./orchestrator');
 const { PlatformManager } = require('./platform');
-const { SessionStore, InMemorySessionStore } = require('./persistence');
+const { SessionStore, InMemorySessionStore, RedisSessionStore } = require('./persistence');
 const { TokenStream } = require('./streaming');
 const { TelemetryProvider } = require('./telemetry');
 const {
@@ -84,6 +84,7 @@ const { AgentSwarm, SwarmMessageBus, SharedBlackboard, SwarmMember, PipelineTopo
 const { BaseBrowserDriver, MockBrowserDriver, BrowserActionTool } = require('./browser');
 const { OtelGenAIBridge, OtelExporter } = require('./telemetry');
 const { TrajectoryEvaluator, EvalReportGenerator, AgentBenchmarkHarness } = require('./evaluation');
+const { ContextRuleEngine, CampaignAnalyticsEngine, AdaptiveGuardrailsEngine, RiskTiers, ContextExperimentEngine } = require('./rules');
 
 module.exports = {
     AgenticCore,
@@ -134,6 +135,7 @@ module.exports = {
     // ── Persistência ──
     SessionStore,
     InMemorySessionStore,
+    RedisSessionStore,
     // ── Sistema de Ferramentas Embutidas ──
     registry,
     composer,
@@ -210,4 +212,12 @@ module.exports = {
     TrajectoryEvaluator,
     EvalReportGenerator,
     AgentBenchmarkHarness,
+    // ── Smart Rules Engine & Analytics de Campanhas (v4.4) ──
+    ContextRuleEngine,
+    CampaignAnalyticsEngine,
+    // ── Guardrails Adaptativos & Defesa Dinâmica (v4.4) ──
+    AdaptiveGuardrailsEngine,
+    RiskTiers,
+    // ── A/B Testing & Multi-Armed Bandit (v4.4) ──
+    ContextExperimentEngine,
 };

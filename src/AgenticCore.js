@@ -19,6 +19,7 @@ const { CheckpointManager, ExecutionJournal } = require('./durable');
 const { SafeSandboxRunner, WasmSandboxRunner, E2BSandboxRunner } = require('./sandbox');
 const { VerificationEngine } = require('./verification');
 const { BrowserActionTool, MockBrowserDriver } = require('./browser');
+const { ContextRuleEngine, CampaignAnalyticsEngine, AdaptiveGuardrailsEngine, RiskTiers, ContextExperimentEngine } = require('./rules');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // AgenticCore
@@ -32,6 +33,10 @@ class AgenticCore extends EventEmitter {
     #toolRegistry = new Map();      // Armazena { declaration, handler }
     #maxAgenticLoopTurns;
     #builtConfig = null;            // invalidado ao registrar nova tool
+    #ruleEngine = null;             // Smart Rules Engine (Injeção Declarativa)
+    #campaignAnalytics = null;      // Analytics de Campanhas & Atribuição Conversacional (v4.4)
+    #guardrailEngine = null;        // Guardrails Adaptativos & Defesa Dinâmica (v4.4)
+    #experimentEngine = null;       // A/B Testing & Multi-Armed Bandit (v4.4)
 
     #sessions = new Map();          // sessionId → AgentSession
     #sessionTTL;
@@ -185,6 +190,12 @@ class AgenticCore extends EventEmitter {
         browser = null,
         browserTool = null,
         otel = null,
+        rules = null,
+        campaignAnalytics = null,
+        guardrails = null,
+        adaptiveGuardrails = null,
+        experiments = null,
+        experimentEngine = null,
     } = {}) {
 
         super();
@@ -676,6 +687,49 @@ class AgenticCore extends EventEmitter {
             // Registra as tools nativas de skills no agente
             registerSkillsTools(this, this.#skillsManager, this.#skillsOptions);
         }
+
+        // ── Smart Rules Engine (Injeção Declarativa e Automática) ──
+        this.#ruleEngine = new ContextRuleEngine();
+        if (Array.isArray(rules)) {
+            for (const r of rules) {
+                this.#ruleEngine.registerRule(r);
+            }
+        } else if (rules instanceof ContextRuleEngine) {
+            this.#ruleEngine = rules;
+        }
+
+        // ── Analytics de Campanhas & Atribuição Conversacional (v4.4) ──
+        if (campaignAnalytics instanceof CampaignAnalyticsEngine) {
+            this.#campaignAnalytics = campaignAnalytics;
+        } else if (typeof campaignAnalytics === 'object' && campaignAnalytics !== null) {
+            this.#campaignAnalytics = new CampaignAnalyticsEngine(campaignAnalytics);
+        } else {
+            this.#campaignAnalytics = new CampaignAnalyticsEngine({ enabled: campaignAnalytics !== false });
+        }
+
+        // ── Guardrails Adaptativos & Defesa Dinâmica (v4.4) ──
+        if (adaptiveGuardrails instanceof AdaptiveGuardrailsEngine) {
+            this.#guardrailEngine = adaptiveGuardrails;
+        } else if (guardrails instanceof AdaptiveGuardrailsEngine) {
+            this.#guardrailEngine = guardrails;
+        } else if (typeof adaptiveGuardrails === 'object' && adaptiveGuardrails !== null) {
+            this.#guardrailEngine = new AdaptiveGuardrailsEngine(adaptiveGuardrails);
+        } else if (Array.isArray(guardrails)) {
+            this.#guardrailEngine = new AdaptiveGuardrailsEngine({ guardrails });
+        } else {
+            this.#guardrailEngine = new AdaptiveGuardrailsEngine({ enabled: adaptiveGuardrails !== false && guardrails !== false });
+        }
+
+        // ── A/B Testing & Multi-Armed Bandit (v4.4) ──
+        if (experimentEngine instanceof ContextExperimentEngine) {
+            this.#experimentEngine = experimentEngine;
+        } else if (typeof experimentEngine === 'object' && experimentEngine !== null) {
+            this.#experimentEngine = new ContextExperimentEngine(experimentEngine);
+        } else if (Array.isArray(experiments)) {
+            this.#experimentEngine = new ContextExperimentEngine({ experiments });
+        } else {
+            this.#experimentEngine = new ContextExperimentEngine({ enabled: experimentEngine !== false });
+        }
     }
 
 
@@ -877,6 +931,37 @@ class AgenticCore extends EventEmitter {
         }
         if (typeof data.vulnerabilityCount === 'number') {
             session.vulnerabilityCount = data.vulnerabilityCount;
+        }
+        if (data.lastActivity) {
+            session.lastActivity = new Date(data.lastActivity);
+        }
+        if (data.createdAt) {
+            session.createdAt = new Date(data.createdAt);
+        }
+
+        // ── Re-hidratação de Contextos Dinâmicos Injetados (v4.4) ──
+        if (Array.isArray(data.injectedContexts)) {
+            session._injectedContexts = data.injectedContexts.map(c => ({ ...c }));
+        }
+
+        // ── Re-hidratação do Estado do Smart Rules Engine (v4.4) ──
+        if (data.ruleState && typeof data.ruleState === 'object') {
+            session._ruleState = {
+                rules: { ...(data.ruleState.rules || {}) },
+                turnCount: data.ruleState.turnCount || 0,
+            };
+        }
+
+        // ── Re-hidratação dos Guardrails Adaptativos (v4.4) ──
+        if (data.riskState && typeof data.riskState === 'object') {
+            session._riskState = {
+                currentTier: data.riskState.currentTier || 'NORMAL',
+                restrictedTools: new Set(data.riskState.restrictedTools || []),
+                consecutiveSafeTurns: data.riskState.consecutiveSafeTurns || 0,
+                triggeredGuardrails: Array.isArray(data.riskState.triggeredGuardrails)
+                    ? [...data.riskState.triggeredGuardrails]
+                    : [],
+            };
         }
 
         return session;
@@ -1213,6 +1298,21 @@ class AgenticCore extends EventEmitter {
             injectedAt: new Date(),
         });
 
+        if (this.#campaignAnalytics && (options.tracking || options.campaignId)) {
+            const trackingSpec = typeof options.tracking === 'object' && options.tracking !== null ? options.tracking : {};
+            const campaignId = trackingSpec.campaignId || options.campaignId || options.label || 'default_campaign';
+            this.#campaignAnalytics.recordInjection({
+                sessionId: sid,
+                campaignId,
+                trackingSpec: {
+                    ...trackingSpec,
+                    campaignId,
+                    renderPatterns: trackingSpec.renderPatterns || (options.label ? [options.label] : []),
+                },
+                turnNumber: session.getHistory().length,
+            });
+        }
+
         this.emit(AgentEvents.CONTEXT_INJECTED, {
             sessionId: sid,
             label: options.label || null,
@@ -1270,6 +1370,184 @@ class AgenticCore extends EventEmitter {
                 turnsRemaining: c.persistent ? Infinity : c.turnsRemaining,
                 injectedAt: c.injectedAt,
             }));
+    }
+
+    // ── Smart Rules Engine (Injeção Declarativa e Automática) ─────────────────
+
+    /**
+     * Registra uma regra de contexto declarativa no Smart Rules Engine.
+     * As regras cadastradas são avaliadas automaticamente a cada mensagem do usuário
+     * e, quando derem correspondência, invocam `injectSystemContext()` de forma autônoma.
+     *
+     * @param {object} rule
+     * @param {string} rule.id                    Identificador único da regra
+     * @param {string} [rule.description]         Descrição humana
+     * @param {object} rule.match                 { keywords, intents, predicate }
+     * @param {string|Function} rule.context      Texto estático ou função geradora de contexto
+     * @param {object} [rule.options]             { ttlTurns, persistent, label, priority }
+     * @param {object} [rule.limits]              { maxPerSession, cooldownTurns, startsAt, expiresAt }
+     * @returns {AgenticCore} this (encadeável)
+     *
+     * @example
+     * agent.registerContextRule({
+     *   id: 'promo_workstations',
+     *   match: { keywords: ['notebook', 'workstation', /placa de v[ií]deo/i] },
+     *   context: 'O cupom TECHDEV20 oferece 20% na TechStore Belém. Mencione se for sobre compras.',
+     *   options: { ttlTurns: 2, label: 'promo_techstore' },
+     *   limits: { maxPerSession: 1, cooldownTurns: 3 }
+     * });
+     */
+    registerContextRule(rule) {
+        this.#ruleEngine.registerRule(rule);
+        return this;
+    }
+
+    /**
+     * Remove uma regra de contexto declarativa pelo ID.
+     * @param {string} id
+     * @returns {boolean} true se a regra existia e foi removida
+     */
+    unregisterContextRule(id) {
+        return this.#ruleEngine.unregisterRule(id);
+    }
+
+    /**
+     * Retorna a lista de todas as regras declarativas cadastradas no motor.
+     * @returns {object[]}
+     */
+    getContextRules() {
+        return this.#ruleEngine.getRules();
+    }
+
+    /**
+     * Limpa todas as regras declarativas registradas.
+     * @returns {number} Quantidade de regras removidas
+     */
+    clearContextRules() {
+        return this.#ruleEngine.clearRules();
+    }
+
+    /**
+     * Retorna a instância do Smart Rules Engine associada ao agente.
+     * @returns {ContextRuleEngine}
+     */
+    get contextRuleEngine() {
+        return this.#ruleEngine;
+    }
+
+    /**
+     * Retorna o subsistema de Atribuição e Analytics de Campanhas (v4.4).
+     * @returns {CampaignAnalyticsEngine}
+     */
+    get campaignAnalytics() {
+        return this.#campaignAnalytics;
+    }
+
+    /**
+     * Registra um guardrail de segurança adaptativo no motor.
+     * @param {object} guardrail Definição do guardrail
+     * @returns {this}
+     */
+    registerGuardrail(guardrail) {
+        this.#guardrailEngine.registerGuardrail(guardrail);
+        return this;
+    }
+
+    /**
+     * Remove um guardrail adaptativo pelo identificador único.
+     * @param {string} id
+     * @returns {boolean}
+     */
+    unregisterGuardrail(id) {
+        return this.#guardrailEngine.unregisterGuardrail(id);
+    }
+
+    /**
+     * Retorna a lista de guardrails cadastrados no motor adaptativo.
+     * @returns {object[]}
+     */
+    getGuardrails() {
+        return this.#guardrailEngine.getGuardrails();
+    }
+
+    /**
+     * Obtém o nível de risco atual da sessão (NORMAL, ELEVATED, HIGH, QUARANTINE).
+     * @param {string} sessionId
+     * @returns {string}
+     */
+    getSessionRiskTier(sessionId) {
+        const session = this.#sessions.get(sessionId);
+        return this.#guardrailEngine.getSessionRiskTier(session);
+    }
+
+    /**
+     * Reseta o estado de risco da sessão de volta para NORMAL e limpa diretrizes defensivas.
+     * @param {string} sessionId
+     */
+    resetSessionRisk(sessionId) {
+        const session = this.#sessions.get(sessionId);
+        if (session) {
+            this.#guardrailEngine.resetSessionRisk(this, session);
+        }
+    }
+
+    /**
+     * Retorna a instância do motor de Guardrails Adaptativos (v4.4).
+     * @returns {AdaptiveGuardrailsEngine}
+     */
+    get guardrailEngine() {
+        return this.#guardrailEngine;
+    }
+
+    /**
+     * Registra um experimento A/B ou Multi-Armed Bandit no motor de experimentação.
+     * @param {object} config
+     * @returns {this}
+     */
+    createExperiment(config) {
+        this.#experimentEngine.createExperiment(config);
+        return this;
+    }
+
+    /**
+     * Seleciona a variante de um experimento para a sessão especificada.
+     * @param {string} experimentId
+     * @param {string} sessionId
+     * @param {object} [contextParams={}]
+     * @returns {object}
+     */
+    selectExperimentVariant(experimentId, sessionId, contextParams = {}) {
+        const session = this.#sessions.get(sessionId) || { id: sessionId };
+        return this.#experimentEngine.selectVariant(experimentId, session, contextParams);
+    }
+
+    /**
+     * Registra uma recompensa para uma variante específica de um experimento.
+     * @param {string} experimentId
+     * @param {string} variantId
+     * @param {number} [reward=1.0]
+     * @param {string} [type='custom']
+     * @returns {boolean}
+     */
+    recordExperimentReward(experimentId, variantId, reward = 1.0, type = 'custom') {
+        return this.#experimentEngine.recordReward(experimentId, variantId, reward, type);
+    }
+
+    /**
+     * Retorna estatísticas de performance de experimentos.
+     * @param {string} [experimentId]
+     * @returns {object}
+     */
+    getExperimentStats(experimentId = null) {
+        return this.#experimentEngine.getExperimentStats(experimentId);
+    }
+
+    /**
+     * Retorna o motor de A/B Testing e Multi-Armed Bandit (v4.4).
+     * @returns {ContextExperimentEngine}
+     */
+    get experimentEngine() {
+        return this.#experimentEngine;
     }
 
     // ── Core: processMessage & processMessageStream ──────────────────────────
@@ -1581,7 +1859,13 @@ class AgenticCore extends EventEmitter {
 
     async #executeProcessMessage(message, sessionId, signal, isSystemTrigger = false, options = {}) {
         const sid = String(sessionId);
-        const session = this.#sessions.get(sid);
+        let session = this.#sessions.get(sid);
+
+        // ── Lazy Auto-Rehydration: Restaura a sessão do SessionStore se ausente na RAM ──
+        if (!session && this.#sessionStore) {
+            session = await this.loadSession(sid);
+        }
+
         if (!session) throw new Error(`[AgenticCore] Session "${sid}" not found.`);
 
         // Sessão encerrada por violação de segurança
@@ -1638,6 +1922,19 @@ class AgenticCore extends EventEmitter {
             session.scheduleIdle(session.idleTimeoutMs);
         } else {
             session.cancelIdle();
+        }
+
+        // ── Analytics de Campanhas: Engajamento com Injeções Anteriores (v4.4) ──
+        if (this.#campaignAnalytics && !isSystemTrigger) {
+            const userFollowUpText = this.#extractUserText(message);
+            if (userFollowUpText) {
+                this.#campaignAnalytics.recordUserFollowUp({
+                    agent: this,
+                    sessionId: session.id,
+                    userText: userFollowUpText,
+                    turnNumber: session.getHistory().length,
+                });
+            }
         }
 
         // ── Auto-RAG de Memória & GraphRAG (Fase 2) ──
@@ -1700,6 +1997,30 @@ class AgenticCore extends EventEmitter {
             }
         }
 
+        // ── Avaliação Automática de Regras Declarativas (Smart Rules Engine) ──
+        if (this.#ruleEngine && !isSystemTrigger) {
+            const userText = this.#extractUserText(message);
+            if (userText) {
+                await this.#ruleEngine.evaluateAndApply({
+                    agent: this,
+                    session,
+                    userText,
+                });
+            }
+        }
+
+        // ── Guardrails Adaptativos & Defesa Dinâmica (v4.4) ──
+        if (this.#guardrailEngine && !isSystemTrigger) {
+            const userText = this.#extractUserText(message);
+            if (userText) {
+                await this.#guardrailEngine.evaluateIncomingMessage({
+                    agent: this,
+                    session,
+                    userText,
+                });
+            }
+        }
+
         // ── Mescla contextos dinâmicos injetados via injectSystemContext() ──
         if (session._injectedContexts?.length > 0) {
             const activeContexts = session._injectedContexts.filter(c => c.persistent || c.turnsRemaining > 0);
@@ -1744,6 +2065,16 @@ class AgenticCore extends EventEmitter {
             );
 
             if (extraTurns.length) session.appendHistory(...extraTurns);
+
+            // ── Analytics de Campanhas: Verificação de Renderização dos Termos na Resposta do LLM ──
+            if (this.#campaignAnalytics && result?.response) {
+                this.#campaignAnalytics.recordTurnResponse({
+                    agent: this,
+                    sessionId: session.id,
+                    responseText: result.response,
+                    turnNumber: session.getHistory().length,
+                });
+            }
 
             // Persiste estado da sessão no SessionStore configurado
             if (this.#sessionStore) {
@@ -2628,6 +2959,26 @@ class AgenticCore extends EventEmitter {
             }
         }
 
+        // ── Restrição de Ferramentas por Guardrails Adaptativos (v4.4) ──
+        if (this.#guardrailEngine?.isToolRestricted(session, name)) {
+            const currentTier = this.#guardrailEngine.getSessionRiskTier(session);
+            const errorMsg = `Tool "${name}" execution blocked by adaptive guardrails policy (session risk tier: ${currentTier}).`;
+            this.emit(AgentEvents.ERROR, {
+                error: new Error(errorMsg),
+                source: 'adaptive_guardrails',
+                name,
+                session: session.toJSON(),
+            });
+            const resultText = JSON.stringify({ error: errorMsg, blocked: true, riskTier: currentTier });
+            this.emit(AgentEvents.TOOL_RESULT, { name, args, result: resultText, session: session.toJSON() });
+            return {
+                functionResponse: {
+                    name,
+                    response: { result: resultText },
+                },
+            };
+        }
+
         // ── Verificação de Política de Segurança (Fase 3) ──
         const activePolicy = options?.securityPolicy || this.#securityPolicy;
         if (activePolicy && typeof activePolicy.validateInvocation === 'function') {
@@ -2754,6 +3105,16 @@ class AgenticCore extends EventEmitter {
                         idempotencyKey,
                         toolName: name,
                         session: session.toJSON(),
+                    });
+                }
+
+                // ── Analytics de Campanhas: Verificação de Conversão por Chamada de Ferramenta ──
+                if (this.#campaignAnalytics) {
+                    this.#campaignAnalytics.recordConversion({
+                        agent: this,
+                        sessionId: session.id,
+                        toolName: name,
+                        reason: 'tool_call',
                     });
                 }
             }

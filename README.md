@@ -395,18 +395,30 @@ agent.resumeSession(sessionId);
 
 ## 💾 Persistência de Sessões Pluggable (v3.4)
 
-Conecte um `SessionStore` (como `InMemorySessionStore` ou adaptadores Redis/MySQL) diretamente ao `AgenticCore`:
+Conecte um `SessionStore` (como `RedisSessionStore` ou `InMemorySessionStore`) diretamente ao `AgenticCore`:
 
 ```javascript
-const { AgenticCore, InMemorySessionStore } = require('@areumtecnologia/agentic-core');
+const { AgenticCore, RedisSessionStore } = require('@areumtecnologia/agentic-core');
 
-const store = new InMemorySessionStore();
+// Adaptador persistente baseado em Redis com TTL e auto-rehidratação
+const store = new RedisSessionStore({
+  host: 'localhost',
+  port: 6379,
+  ttlSeconds: 1800, // 30 minutos de expiração automática no Redis
+  keyPrefix: 'agentic:',
+});
+
 const agent = new AgenticCore({
   agent: myConfig,
   sessionStore: store, // Sincronização automática a cada turno
 });
 
-// Salva e restaura sessões entre diferentes instâncias ou pods
+// Lazy Auto-Rehydration: Se uma mensagem chegar em qualquer instância/pod de um cluster
+// para uma sessão que não está na RAM local, o AgenticCore restaura a sessão
+// automaticamente do Redis com todo o histórico, contextos injetados, regras e guardrails!
+const res = await agent.processMessage('session-123', 'Olá, gostaria de continuar nosso atendimento.');
+
+// Salva e restaura manualmente quando necessário
 await agent.saveSession('session-123');
 const restoredSession = await agent.loadSession('session-123');
 ```
@@ -702,6 +714,10 @@ agent
   .on(AgentEvents.GRAPH_CONTEXT_RETRIEVED, ({ query, subgraphsFound }) => console.log(`GraphRAG injetou ${subgraphsFound} relações para: "${query}"`))
   .on(AgentEvents.TURN_INJECTED, ({ sessionId, turns, count }) => console.log(`[Turn Injection] ${count} turno(s) injetado(s) na sessão ${sessionId}`))
   .on(AgentEvents.CONTEXT_INJECTED, ({ sessionId, label, ttlTurns, persistent }) => console.log(`[Context Injection] Contexto "${label || 'unlabeled'}" injetado na sessão ${sessionId} (TTL: ${persistent ? 'infinito' : ttlTurns} turnos)`))
+  .on(AgentEvents.RULE_TRIGGERED, ({ sessionId, ruleId, match }) => console.log(`[Smart Rule] Regra "${ruleId}" ativada na sessão ${sessionId} via ${match.type}`))
+  .on(AgentEvents.INJECTION_RENDERED, ({ sessionId, campaignId, pattern }) => console.log(`[Campaign Rendered] Campanha "${campaignId}" citada pelo LLM (${pattern})`))
+  .on(AgentEvents.INJECTION_ENGAGED, ({ sessionId, campaignId, userText }) => console.log(`[Campaign Engaged] Cliente reagiu à campanha "${campaignId}": ${userText}`))
+  .on(AgentEvents.INJECTION_CONVERTED, ({ sessionId, campaignId, toolName }) => console.log(`[Campaign Converted] Campanha "${campaignId}" convertida via ${toolName}`))
   .on(AgentEvents.RESPONSE, ({ response, reasoning, usageMetadata }) => console.log('Resposta:', response))
   .on(AgentEvents.TOOL_CALL, ({ name, args }) => console.log(`Tool chamada: ${name}`, args))
   .on(AgentEvents.TOOL_RESULT, ({ name, result }) => console.log(`Tool resultado: ${name}`, result))
@@ -1442,14 +1458,307 @@ const res = await agent.processMessage(sessionId, 'Quero saber onde está minha 
 
 ---
 
-### 3. Métodos Auxiliares de Gestão de Contexto
+### 💡 Casos de Uso: Reengajamento, Follow-up e Despertar de Usuário Inativo
+
+Um dos casos de uso mais comuns em plataformas de atendimento (WhatsApp, Webchat, SAC) é quando **o cliente para de responder no meio de um atendimento, compra ou cotação**. 
+
+A injeção dinâmica de contexto (`injectSystemContext`) permite despertar o agente e gerar lembretes ultra-personalizados baseados no histórico exato da conversa, **sem poluir o histórico com mensagens falsas do usuário**:
+
+#### Cenário A: Despertar Automático em Tempo Real (`SESSION_IDLE_TIMEOUT`)
+
+Configure um temporizador de inatividade (`idleTimeout`) na sessão. Quando o usuário ficar em silêncio pelo tempo estipulado, o evento `SESSION_IDLE_TIMEOUT` dispara:
+
+```javascript
+const { AgenticCore, AgentEvents } = require('@areumtecnologia/agentic-core');
+
+const agent = new AgenticCore({ agent: myConfig });
+
+// 1. Cria a sessão com idleTimeout de 3 minutos (180.000 ms)
+const session = agent.createSession('user_whatsapp_123', {
+  user: { name: 'João' },
+  idleTimeout: 3 * 60 * 1000, // 3 minutos sem resposta do cliente
+  idleRepeat: false,          // se true, repete se o cliente continuar em silêncio
+});
+
+// 2. Escuta quando o usuário ficou inativo
+agent.on(AgentEvents.SESSION_IDLE_TIMEOUT, async ({ session }) => {
+  console.log(`[Follow-up] Cliente ${session.user.name} parou de responder.`);
+
+  // Injeta a diretriz contextualizada sem poluir o histórico visual da conversa
+  agent.injectSystemContext(session.id, `
+[DIRETRIZ DE DESPERTAR / FOLLOW-UP DE INATIVIDADE]
+O cliente ${session.user.name} parou de responder há alguns minutos.
+Verifique educadamente se ele ainda está aí, se teve alguma dúvida sobre a proposta anterior ou se prefere retomar mais tarde.
+Seja breve (máximo 2 frases) e acolhedor.
+  `, {
+    ttlTurns: 1, // Consumido exclusivamente neste turno de lembrete
+    label: 'idle_reengagement',
+  });
+
+  // Desperta o LLM para gerar a mensagem de lembrete
+  const res = await agent.processMessage(session.id, '[SYSTEM: Envie uma mensagem de follow-up cordial]');
+  
+  // Envia a resposta personalizada para o WhatsApp / Canal do cliente:
+  await whatsappClient.sendMessage(session.id, res.response);
+});
+```
+
+#### Cenário B: Recuperação de Carrinho Abandonado / Follow-up Tardio (Fila BullMQ / Cron)
+
+Para follow-ups após 2 horas ou 24 horas — mesmo quando a sessão já foi descarregada da memória RAM local e está persistida no **Redis** ou **MySQL** (`RedisSessionStore`):
+
+Graças à **Lazy Auto-Rehydration**, o `AgenticCore` re-hidrata todo o histórico e contexto da conversa automaticamente ao receber a mensagem:
+
+```javascript
+// Disparado por um Cron Job ou Fila BullMQ 2 horas após a inatividade do cliente:
+async function triggerAbandonedCartFollowup(sessionId) {
+  // 1. Injeta a instrução com oferta de recuperação de carrinho
+  agent.injectSystemContext(sessionId, `
+[AÇÃO DE RECUPERAÇÃO DE CARRINHO ABANDONADO]
+O cliente não responde há 2 horas. Ele demonstrou forte interesse no plano Pro.
+Envie uma mensagem amigável perguntando se precisa de ajuda para concluir a assinatura e ofereça o cupom VOLTE10 para 10% de desconto na primeira mensalidade.
+  `, {
+    ttlTurns: 1,
+    label: 'cart_recovery',
+    tracking: {
+      campaignId: 'camp_recuperacao_2h',
+      renderPatterns: ['VOLTE10'],
+      engagementPatterns: ['gostei do cupom', 'como uso'],
+    }
+  });
+
+  // 2. O AgenticCore restaura a sessão do Redis/MySQL automaticamente e gera a mensagem
+  const res = await agent.processMessage(sessionId, '[SYSTEM_TRIGGER: Disparar reengajamento de carrinho abandonado]');
+
+  // 3. Dispara a mensagem gerada para o cliente
+  await messagingService.send(sessionId, res.response);
+}
+```
+
+---
+
+### 3. Smart Rules Engine (Injeção Declarativa e Automática)
+
+O **Smart Rules Engine** permite registrar regras declarativas que monitoram as mensagens do usuário e aplicam diretrizes automaticamente via `injectSystemContext()`, liberando o desenvolvedor de ter que avaliar e injetar instruções manualmente em cada requisição.
+
+O método manual `injectSystemContext()` **permanece 100% ativo e disponível** para disparos pontuais ou intervenções humanas (operador/handover).
+
+- **Gatilhos de Ativação**: Suporta `keywords` (strings ou `RegExp`), `intents` semânticas e `predicate` funcional assíncrono `({ session, text, normalized, history })`.
+- **Contexto Dinâmico**: O campo `context` aceita tanto uma string estática quanto uma função geradora `({ session, match }) => string`.
+- **Frequency Capping & Anti-Spam**: Protege o cliente de propagandas repetitivas através de `maxPerSession` (máximo de disparos por sessão) e `cooldownTurns` (turnos mínimos de resfriamento entre ativações).
+- **Janela de Validade**: Suporta datas de início (`startsAt`) e expiração (`expiresAt`).
+- **Evento em Tempo Real**: Emite `AgentEvents.RULE_TRIGGERED` contendo os detalhes do match e o contexto gerado.
+
+```javascript
+const { AgenticCore, AgentConfig, GoogleProvider, AgentEvents } = require('@areumtecnologia/agentic-core');
+
+const agent = new AgenticCore({
+  agent: new AgentConfig('Monnalisa', 'Áreum', '...', 'Consultor', 'Atender', '...'),
+  apiKey: process.env.GOOGLE_GEMINI_API_KEY
+});
+
+// Registra regra declarativa global (uma única vez no startup)
+agent.registerContextRule({
+  id: 'promo_workstations',
+  description: 'Oferece cupom da TechStore quando o cliente falar sobre notebooks ou computadores',
+  match: {
+    keywords: ['notebook', 'computador', /workstation/i],
+    predicate: ({ session }) => !session.user.tags?.includes('ja_comprou')
+  },
+  context: ({ session }) => `
+  [Campanha Ativa - TechStore Belém]
+  O cliente ${session.user.name} tem direito a 20% de desconto em notebooks com o cupom TECHDEV20.
+  Mencione com naturalidade se o assunto for compra ou upgrade de hardware.
+  `,
+  options: {
+    ttlTurns: 2,
+    label: 'promo_techstore'
+  },
+  limits: {
+    maxPerSession: 1, // Não repete na mesma conversa
+    cooldownTurns: 3  // Intervalo de resfriamento
+  }
+});
+
+// Escuta a ativação automática
+agent.on(AgentEvents.RULE_TRIGGERED, ({ ruleId, sessionId, match }) => {
+  console.log(`[Regra Ativada] Regra "${ruleId}" disparou na sessão ${sessionId} via ${match.type}`);
+});
+
+const sessionId = 'cli-101';
+agent.createSession(sessionId, { name: 'Renan' });
+
+// Uso concomitante: o operador ainda pode injetar instruções manuais a qualquer momento!
+agent.injectSystemContext(sessionId, 'Aviso de suporte: sistema em manutenção às 23h.', { ttlTurns: 1 });
+
+// Quando o usuário perguntar algo que case com a regra, o Smart Rules Engine injetará o contexto automaticamente:
+const res = await agent.processMessage(sessionId, 'Estou pesquisando um notebook potente para compilar códigos de IA.');
+```
+
+---
+
+### 4. Analytics de Campanhas & Atribuição Conversacional (CTR de IA)
+
+O **CampaignAnalyticsEngine** monitora o ciclo de vida completo de cada propaganda ou diretriz injetada, medindo a real eficácia comercial e comportamental da IA:
+
+- **Funil de Atribuição em 4 Etapas**:
+  1. `INJETADO`: A regra ou injeção entrou no prompt consolidado.
+  2. `RENDERIZADO`: O LLM citou os termos-chave ou cupom na resposta final (`renderPatterns`).
+  3. `ENGAJADO`: O cliente interagiu sobre a proposta na mensagem imediatamente seguinte (`engagementPatterns`).
+  4. `CONVERTIDO`: O cliente realizou a ação esperada (ex: invocação da ferramenta `conversionTool`).
+- **Métricas & KPIs Automáticos**:
+  - `Render Rate`: Percentual de vezes que o LLM seguiu a instrução e citou a campanha.
+  - `Engagement Rate (Conversational CTR)`: Percentual de clientes que demonstraram interesse.
+  - `Conversion Rate (CVR)`: Percentual de conversões concretas sobre as exibições.
+- **Relatório Executivo em Markdown**: Gerado via `agent.campaignAnalytics.generateMarkdownReport()`.
+
+```javascript
+// Registra regra com especificação de rastreamento (tracking)
+agent.registerContextRule({
+  id: 'promo_nuvem',
+  match: { keywords: ['servidor', 'cloud', 'hospedagem'] },
+  context: 'Ofereça 30 dias grátis de Cloud com cupom NUVEM30.',
+  options: {
+    ttlTurns: 2,
+    tracking: {
+      campaignId: 'cloud_q4',
+      renderPatterns: ['NUVEM30', '30 dias grátis'],
+      engagementPatterns: ['preço', 'como funciona', 'quero', 'cupom', 'ativar'],
+      conversionTool: 'provision_cloud_account'
+    }
+  }
+});
+
+// Eventos de telemetria analítica
+agent
+  .on(AgentEvents.INJECTION_RENDERED, ({ campaignId, pattern }) => {
+    console.log(`[Campanha Renderizada] IA citou o termo "${pattern}" da campanha ${campaignId}`);
+  })
+  .on(AgentEvents.INJECTION_ENGAGED, ({ campaignId, userText }) => {
+    console.log(`[Campanha Engajada] Usuário reagiu à campanha ${campaignId}: "${userText}"`);
+  })
+  .on(AgentEvents.INJECTION_CONVERTED, ({ campaignId, toolName }) => {
+    console.log(`[Conversão!] Campanha ${campaignId} converteu via tool "${toolName}"`);
+  });
+
+// Gerando relatório consolidado
+console.log(agent.campaignAnalytics.generateMarkdownReport());
+```
+
+---
+
+### 5. Métodos Auxiliares de Gestão de Contexto, Regras e Analytics
+
+---
+
+### 5. Guardrails Adaptativos & Defesa Dinâmica por Risco (Adaptive Guardrails)
+
+O **AdaptiveGuardrailsEngine** monitora continuamente a conduta do usuário e eleva o nível de risco da sessão (*Risk Tiers*) ao detectar tentativas de *prompt injection*, *jailbreaks* (como DAN mode), extração de *system prompt* ou furto de credenciais/API keys.
+
+Em vez de apenas abortar bruscamente a conversa, o motor adota uma **defesa adaptativa em camadas**:
+1. **Níveis de Risco Dinâmicos (`RiskTiers`)**:
+   - `NORMAL` (Tier 0): Sessão padrão com acesso completo a todas as ferramentas autorizadas.
+   - `ELEVATED` (Tier 1): Injeção imediata de diretriz de blindagem de persona e recusa de simulações.
+   - `HIGH` (Tier 2): Restrição imediata de ferramentas sensíveis (`execute_script`, `sql_query`, etc.) e diretriz de resposta curta e protocolar.
+   - `QUARANTINE` (Tier 3): Isolamento de sessão e mitigação rigorosa de segurança.
+2. **Mitigação Transparente**: As diretrizes de blindagem são injetadas no próprio ciclo de vida via `injectSystemContext()`.
+3. **Bloqueio Ativo de Tools**: Se um ataque tentar forçar chamadas de ferramentas de alto risco, o `AgenticCore` intercepta a execução, emite `AgentEvents.ERROR` (source: `adaptive_guardrails`) e impede que comandos maliciosos alcancem o ambiente.
+4. **Desescalonamento Gradual**: Se o usuário retomar uma conduta legítima por 3 turnos seguros consecutivos, o nível de risco desce automaticamente e as diretrizes defensivas são limpas.
+
+```javascript
+const { AgenticCore, RiskTiers } = require('@areumtecnologia/agentic-core');
+
+// Cadastra um guardrail customizado corporativo
+agent.registerGuardrail({
+    id: 'anti_competitor_smear',
+    category: 'brand_protection',
+    detector: {
+        keywords: ['concorrente é melhor', 'sistema lixo'],
+    },
+    action: {
+        elevateToTier: RiskTiers.TIER_1_ELEVATED,
+        defenseDirective: '[DIRETRIZ DE CONDUTA] Mantenha a compostura, elogie a concorrência cordialmente e destaque nossos diferenciais.',
+    }
+});
+
+// Acompanha mudanças de risco em tempo real
+agent.on(AgentEvents.GUARDRAIL_TIER_CHANGED, ({ sessionId, previousTier, newTier, reason }) => {
+    console.log(`[Segurança] Sessão ${sessionId} migrou de ${previousTier} para ${newTier} (${reason})`);
+});
+```
+
+---
+
+---
+
+### 6. Context A/B Testing & Multi-Armed Bandit (Otimização Contínua de Mensagens)
+
+O **ContextExperimentEngine** permite testar e otimizar variações de copy, abordagens de vendas, tons de voz e mensagens injetadas usando algoritmos de **Multi-Armed Bandit (MAB)**:
+
+- **Estratégias Suportadas**:
+  - `epsilon-greedy` *(Padrão)*: Explora aleatoriamente com probabilidade $\epsilon$ (ex: 15%) e explora a melhor variante com probabilidade $1 - \epsilon$.
+  - `softmax` (Boltzmann): Distribui probabilidades de escolha de forma proporcional ao histórico relativo de recompensas.
+  - `round-robin`: Alternância estrita e uniforme entre variantes.
+  - `static-split`: Divisão ponderada por pesos customizados.
+- **Integração Declarativa com Regras**: O `ContextRuleEngine` aceita `experimentId`, selecionando a variante vencedora automaticamente no momento do disparo.
+- **Ciclo Fechado com Analytics**: O `CampaignAnalyticsEngine` retroalimenta recompensas quando o usuário engaja ou quando aciona a ferramenta de conversão (`conversionGoal`).
+- **Coerência de Sessão (`stickToSession`)**: Garante que o mesmo cliente receba a mesma variação durante toda a conversa.
+
+```javascript
+const { AgenticCore } = require('@areumtecnologia/agentic-core');
+
+// Cadastra um experimento Multi-Armed Bandit
+agent.createExperiment({
+    id: 'promo_workstation_copy',
+    name: 'Teste de Copy para Linha Workstation',
+    strategy: 'epsilon-greedy',
+    epsilon: 0.15,
+    stickToSession: true,
+    variants: [
+        { id: 'v_economia', text: 'Mencione o cupom TECHDEV20 focando em 20% de economia.' },
+        { id: 'v_performance', text: 'Mencione o cupom TECHDEV20 focando em dobro de velocidade para programar.' },
+    ],
+    conversionGoal: {
+        toolName: 'checkout_order',
+        rewardValue: 1.0,
+        engagementReward: 0.3,
+    }
+});
+
+// Vincula o experimento a uma regra automática
+agent.registerContextRule({
+    id: 'rule_workstation',
+    match: { keywords: ['computador', 'workstation'] },
+    experimentId: 'promo_workstation_copy',
+});
+```
+
+---
+
+### Resumo dos Métodos da v4.4
 
 | Método | Descrição |
 |---|---|
-| `agent.injectSystemContext(sid, text, options)` | Adiciona contexto dinâmico ao prompt com suporte a `ttlTurns`, `persistent` e `label`. |
+| `agent.registerContextRule(rule)` | Cadastra uma regra declarativa no Smart Rules Engine (suporta `experimentId`). |
+| `agent.unregisterContextRule(id)` | Remove uma regra declarativa cadastrada pelo ID. |
+| `agent.getContextRules()` | Retorna a lista de todas as regras declarativas cadastradas. |
+| `agent.clearContextRules()` | Remove todas as regras declarativas registradas. |
+| `agent.createExperiment(config)` | Registra um experimento A/B ou Multi-Armed Bandit de copy/mensagens. |
+| `agent.selectExperimentVariant(expId, sid)` | Obtém a variante sorteada ou vinculada à sessão pelo Bandit. |
+| `agent.recordExperimentReward(expId, varId, val)` | Credita recompensa manual ou customizada para alimentar o algoritmo MAB. |
+| `agent.getExperimentStats(expId?)` | Retorna estatísticas consolidadas (impressões, engajamentos, conversões e CVR). |
+| `agent.experimentEngine.generateMarkdownReport()` | Gera relatório executivo com ranking e status da variante líder em Markdown. |
+| `agent.registerGuardrail(guardrail)` | Cadastra um guardrail adaptativo de segurança no motor. |
+| `agent.unregisterGuardrail(id)` | Remove um guardrail adaptativo pelo identificador. |
+| `agent.getGuardrails()` | Retorna a lista de guardrails adaptativos ativos. |
+| `agent.getSessionRiskTier(sid)` | Obtém o nível de risco atual da sessão (`NORMAL`, `ELEVATED`, `HIGH`, `QUARANTINE`). |
+| `agent.resetSessionRisk(sid)` | Reseta manualmente o risco da sessão para `NORMAL` e limpa restrições. |
+| `agent.injectSystemContext(sid, text, options)` | Adiciona contexto dinâmico manualmente com suporte a `ttlTurns`, `persistent`, `label` e `tracking`. |
 | `agent.injectTurn(sid, turns, options)` | Injeta turnos (`role: 'user'`, `'model'`, `'tool'`) diretamente no histórico sem chamar a API. |
 | `agent.getInjectedContexts(sid)` | Retorna todos os contextos dinâmicos ativos na sessão com seus turnos restantes. |
 | `agent.clearInjectedContext(sid, label?)` | Remove contextos dinâmicos. Remove todos se omitido o `label`, ou apenas o correspondente. |
+| `agent.campaignAnalytics.getMetrics(id?)` | Retorna métricas analíticas detalhadas de campanhas (injections, renders, engagements, CVR). |
+| `agent.campaignAnalytics.generateMarkdownReport()` | Gera relatório analítico consolidado pronto em formato Markdown. |
 
 ---
 
@@ -1524,7 +1833,7 @@ agentic-core/
 │   │   ├── MockBrowserDriver.js          # Driver hermético nativo sem dependências de Chromium
 │   │   └── BrowserActionTool.js          # Ferramenta nativa do agente protegida com anti-SSRF
 │   ├── orchestrator/                     # Orquestração (TaskGraph, TaskNode, ParallelExecutor, Orchestrator)
-│   ├── persistence/                      # Persistência (SessionStore, InMemorySessionStore)
+│   ├── persistence/                      # Persistência (SessionStore, InMemorySessionStore, RedisSessionStore)
 │   ├── platform/                         # Multi-tenancy (PlatformManager)
 │   ├── providers/                        # Providers (Google, OpenAI, Anthropic, Ollama, Nvidia)
 │   ├── durable/                          # Execução Durável & Resiliência (ExecutionJournal, CheckpointManager)

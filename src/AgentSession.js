@@ -155,6 +155,15 @@ class AgentSession extends EventEmitter {
             handoverInfo: this.handoverInfo,
             // Contextos dinâmicos injetados via injectSystemContext()
             injectedContexts: (this._injectedContexts || []).filter(c => c.persistent || c.turnsRemaining > 0),
+            // Estado de auditoria do Smart Rules Engine
+            ruleState: this._ruleState || null,
+            // Estado de risco dos Guardrails Adaptativos
+            riskState: this._riskState ? {
+                currentTier: this._riskState.currentTier,
+                restrictedTools: Array.from(this._riskState.restrictedTools || []),
+                consecutiveSafeTurns: this._riskState.consecutiveSafeTurns,
+                triggeredGuardrails: this._riskState.triggeredGuardrails,
+            } : null,
         };
     }
 }

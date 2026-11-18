@@ -78,6 +78,18 @@ const AgentEvents = Object.freeze({
     // ── Injeção Dinâmica de Turnos & Contexto (v4.4) ──
     TURN_INJECTED: 'turn_injected',                 // Turno(s) injetado(s) manualmente no histórico da sessão
     CONTEXT_INJECTED: 'context_injected',           // Contexto dinâmico injetado no system prompt da sessão
+    RULE_TRIGGERED: 'rule_triggered',               // Regra declarativa disparou e injetou contexto automaticamente
+    RULE_COOLDOWN_BLOCKED: 'rule_cooldown_blocked', // Disparo de regra suprimido por frequency cap ou cooldown
+    // ── Analytics de Campanhas & Atribuição Conversacional (v4.4) ──
+    INJECTION_RENDERED: 'injection:rendered',       // LLM citou os termos/cupom da campanha na resposta final
+    INJECTION_ENGAGED: 'injection:engaged',         // Cliente reagiu/perguntou sobre a campanha no turno seguinte
+    INJECTION_CONVERTED: 'injection:converted',     // Ação de sucesso ou ferramenta de conversão alcançada
+    // ── Guardrails Adaptativos & Defesa Dinâmica (v4.4) ──
+    GUARDRAIL_TRIGGERED: 'guardrail:triggered',     // Violação de segurança detectada e mitigação aplicada
+    GUARDRAIL_TIER_CHANGED: 'guardrail:tier_changed', // Nível de risco da sessão alterado (ex: NORMAL -> ELEVATED -> HIGH)
+    // ── A/B Testing & Multi-Armed Bandit (v4.4) ──
+    EXPERIMENT_VARIANT_SELECTED: 'experiment:variant_selected', // Variante escolhida para a sessão pelo Bandit
+    EXPERIMENT_REWARD_RECORDED: 'experiment:reward_recorded',   // Recompensa atribuída à variante após engajamento/conversão
 });
 
 module.exports = { AgentEvents };

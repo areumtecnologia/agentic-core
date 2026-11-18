@@ -74,7 +74,10 @@ const AgentEvents = Object.freeze({
     // ── Trajectory Evals & CI/CD Benchmarking (v4.3) ──
     EVAL_SUITE_STARTED: 'eval:suite_started',       // Início de bateria de regressão
     EVAL_SCENARIO_COMPLETED: 'eval:scenario_completed', // Cenário de avaliação concluído
-    EVAL_SUITE_COMPLETED: 'eval:suite_completed'    // Suíte completa de benchmark finalizada
+    EVAL_SUITE_COMPLETED: 'eval:suite_completed',   // Suíte completa de benchmark finalizada
+    // ── Injeção Dinâmica de Turnos & Contexto (v4.4) ──
+    TURN_INJECTED: 'turn_injected',                 // Turno(s) injetado(s) manualmente no histórico da sessão
+    CONTEXT_INJECTED: 'context_injected',           // Contexto dinâmico injetado no system prompt da sessão
 });
 
 module.exports = { AgentEvents };

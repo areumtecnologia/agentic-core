@@ -21,22 +21,25 @@ const axios = require('axios');
 //   • inErrorState: Flag que marca sessão em erro (graceful degradation)
 //   • Resposta de indisponibilidade customizável (errorMessages)
 // ─────────────────────────────────────────────────────────────────────────────
-// modelos NvidiaProvider multimodais somente imagem:
+// modelos NvidiaProvider multimodais (somente imagem):
 // "z-ai/glm-5.2", //"stepfun-ai/step-3.7-flash", //'google/diffusiongemma-26b-a4b-it' 
 // modelos NvidiaProvider multimodais com audio:
 // //'thinkingmachines/inkling', nvidia/nemotron-3-nano-omni-30b-a3b-reasoning, deepseek-ai/deepseek-v4-flash-0731
-// IHA089/drana-infinity-0.5b:0.5b qwen2.5:0.5b qwen3:0.6b qwen2.5-coder:0.5b qwen3.5:0.8b minicpm-v4.6:latest LiquidAI/lfm2.5-350m:latest LiquidAI/lfm2.5-1.2b-instruct:latest
+// modelos NvidiaProvider para tarefas de texto e agentes:
+// 
+// modelos ollama:
+// qwen2.5:0.5b qwen3:0.6b qwen2.5-coder:0.5b qwen3.5:0.8b minicpm-v4.6:latest LiquidAI/lfm2.5-350m:latest LiquidAI/lfm2.5-1.2b-instruct:latest
 async function example() {
   const customerAgent = new AgenticCore({
     apiKey: GOOGLE_GEMINI_API_KEY,
     model: ['gemma-4-26b-a4b-it', 'gemma-4-31b-it'],
     // provider: new OllamaProvider({
     //   apiKey: NVIDIA_API_KEY,
-    //   model: "qwen2.5-coder:0.5b",
-    // }),    
-    ttsProvider: new KokoroTTS({
-      voice: KokoroVoice.AF_BELLA
-    }),
+    //   model: "qwen3.5:0.8b",
+    // }),
+    // ttsProvider: new KokoroTTS({
+    //   voice: KokoroVoice.AF_BELLA
+    // }),
     agent: new AgentConfig(
       'Monnalisa',
       'Áreum Tecnologia',
@@ -46,7 +49,7 @@ async function example() {
       `Responda às solicitações do usuário. Se não tiver uma resposta, use suas ferramentas para obter e raciocinar sobre o assunto. Seja claro, conciso e direto. Evite respostas vagas ou genéricas. Se não puder responder, admita que não sabe e use a ferramenta de raciocínio para obter uma resposta. Evite inventar informações. Mantenha a conversa natural e envolvente.`,
       'pt-BR'
     ),
-    temperature: 0.9,
+    temperature: 0.2,
     topP: 1,
     maxOutputTokens: 512,
     maxAgenticLoopTurns: 5,
@@ -70,7 +73,7 @@ async function example() {
       console.log(`[Reasoning] Sessão ${session.id}:`, reasoning);
       console.log('\x1b[32m%s\x1b[0m', `[Agente] Sessão ${session.id}:`, response);
       console.log(`[UsageMetadata] Sessão ${session.id}:`, usageMetadata);
-      console.log(`[TTS_RESPOSNE]:`, ttsResponse.toBase64('ogg'));
+      ttsResponse ? console.log(`[TTS_RESPOSNE]:`, ttsResponse.toBase64('ogg')) : null;
 
     })
     // .on(AgentEvents.RAW_RESPONSE, ({ rawResponse, session }) => console.log(`[Raw Response] Sessão ${session.id}:`, rawResponse, rawResponse.candidates[0].content.parts))

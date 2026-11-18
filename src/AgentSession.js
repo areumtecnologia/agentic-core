@@ -153,6 +153,8 @@ class AgentSession extends EventEmitter {
             idleRepeat: this.idleRepeat,
             status: this.status,
             handoverInfo: this.handoverInfo,
+            // Contextos dinâmicos injetados via injectSystemContext()
+            injectedContexts: (this._injectedContexts || []).filter(c => c.persistent || c.turnsRemaining > 0),
         };
     }
 }

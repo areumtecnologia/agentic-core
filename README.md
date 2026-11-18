@@ -1,6 +1,6 @@
 # Agentic Core
 
-> **v4.3.0** — Framework profissional para orquestração de Agentes Autônomos em Node.js com suporte a múltiplos provedores redundantes (Google Gemini, OpenAI, Claude, Ollama, Nvidia), **Observabilidade Corporativa OpenTelemetry GenAI (`OtelGenAIBridge`, `OtelExporter`)**, **Framework de Evals & Benchmarking de Trajetórias para CI/CD (`AgentBenchmarkHarness`, `TrajectoryEvaluator`, `EvalReportGenerator`)**, **Swarms Colaborativos Multi-Agente & Protocolo A2A (`AgentSwarm`, `SwarmMessageBus`, `SharedBlackboard`, topologias `Supervisor`, `Pipeline` e `Blackboard`)**, **Navegação Web Autônoma e Browser Use Segura (`BrowserActionTool`, `MockBrowserDriver`, `BaseBrowserDriver`)**, **Motor de Verificação Cognitiva Actor-Critic com Auto-Correção Reflexiva (`VerificationEngine`)**, **Memória em Grafo de Conhecimento Relacional Multi-Hop & GraphRAG (`KnowledgeGraph`, `GraphMemoryStore`)**, **Execução Durável com Checkpointing Transacional & Idempotência (`CheckpointManager` / `ExecutionJournal`)**, **Sandbox Seguro Isolado de Código e Suporte a WebAssembly (`SafeSandboxRunner`, `WasmSandboxRunner`, `E2BSandboxRunner`)**, **tratamento inteligente de estouro de tokens com auto-continuação transparente (`autoContinueOnLength`)**, **SLM Engine blindado (`OutputSanitizer` com regex Unicode e preservação de listas/links)**, **envio unificado multimodal via `processMessage` com suporte a áudio, voz e resposta TTS (`ttsResponse`)**, **provedores TTS de primeira classe (`GoogleTTS`, `PiperTTS`, `KokoroTTS`, `MagpieTTS`) e constantes enumeradas sem strings mágicas (`VoiceTypes`)**, **auto-extensão com o ecossistema Open Agent Skills (`npx skills` / skills.sh)**, **transbordo humano inteligente omnichannel (`escalate_to_human`)**, **persistência distribuída de sessões (`SessionStore`)**, **raciocínio passo a passo (`reasoningTool`)**, **cálculo determinístico em sandbox seguro (`calculatorTool`)**, **pesquisa web gratuita (`webSearchTool`)**, **streaming em tempo real com `TokenStream`**, **auto-RAG de memória**, observabilidade com `TelemetryProvider`, suporte nativo a MCP e failover automático.
+> **v4.4.0** — Framework profissional para orquestração de Agentes Autônomos em Node.js com suporte a múltiplos provedores redundantes (Google Gemini, OpenAI, Claude, Ollama, Nvidia), **Injeção Dinâmica de Turnos & Contexto (`injectTurn`, `injectSystemContext`) para propagandas e instruções mid-conversation**, **Observabilidade Corporativa OpenTelemetry GenAI (`OtelGenAIBridge`, `OtelExporter`)**, **Framework de Evals & Benchmarking de Trajetórias para CI/CD (`AgentBenchmarkHarness`, `TrajectoryEvaluator`, `EvalReportGenerator`)**, **Swarms Colaborativos Multi-Agente & Protocolo A2A (`AgentSwarm`, `SwarmMessageBus`, `SharedBlackboard`, topologias `Supervisor`, `Pipeline` e `Blackboard`)**, **Navegação Web Autônoma e Browser Use Segura (`BrowserActionTool`, `MockBrowserDriver`, `BaseBrowserDriver`)**, **Motor de Verificação Cognitiva Actor-Critic com Auto-Correção Reflexiva (`VerificationEngine`)**, **Memória em Grafo de Conhecimento Relacional Multi-Hop & GraphRAG (`KnowledgeGraph`, `GraphMemoryStore`)**, **Execução Durável com Checkpointing Transacional & Idempotência (`CheckpointManager` / `ExecutionJournal`)**, **Sandbox Seguro Isolado de Código e Suporte a WebAssembly (`SafeSandboxRunner`, `WasmSandboxRunner`, `E2BSandboxRunner`)**, **tratamento inteligente de estouro de tokens com auto-continuação transparente (`autoContinueOnLength`)**, **SLM Engine blindado (`OutputSanitizer` com regex Unicode e preservação de listas/links)**, **envio unificado multimodal via `processMessage` com suporte a áudio, voz e resposta TTS (`ttsResponse`)**, **provedores TTS de primeira classe (`GoogleTTS`, `PiperTTS`, `KokoroTTS`, `MagpieTTS`) e constantes enumeradas sem strings mágicas (`VoiceTypes`)**, **auto-extensão com o ecossistema Open Agent Skills (`npx skills` / skills.sh)**, **transbordo humano inteligente omnichannel (`escalate_to_human`)**, **persistência distribuída de sessões (`SessionStore`)**, **raciocínio passo a passo (`reasoningTool`)**, **cálculo determinístico em sandbox seguro (`calculatorTool`)**, **pesquisa web gratuita (`webSearchTool`)**, **streaming em tempo real com `TokenStream`**, **auto-RAG de memória**, observabilidade com `TelemetryProvider`, suporte nativo a MCP e failover automático.
 
 ---
 
@@ -8,6 +8,7 @@
 
 | Recurso | Descrição |
 |---|---|
+| **Injeção de Turnos & Contexto Dinâmico (v4.4)** | Injeção de turnos arbitrários (`injectTurn` com `role: 'user'`, `'model'` ou `'tool'`) sem invocar o LLM e injeção de instruções/diretrizes dinâmicas (`injectSystemContext`) com controle de TTL por turnos ou persistência permanente. Ideal para propagandas contextualizadas, promoções sazonais, regras comportamentais temporárias e semeadura de histórico few-shot. |
 | **Observabilidade OpenTelemetry GenAI (v4.3)** | Mapeamento automático para as Convenções Semânticas oficiais de GenAI do OpenTelemetry (`OtelGenAIBridge` / `OtelExporter` com payload OTLP v1 canônico). Rastreamento de spans hierárquicos para chamadas de LLM, execuções de ferramentas, verificação Actor-Critic e consultas em grafos, com exportação para coletores corporativos (Datadog, Dynatrace, LangSmith, Phoenix, Grafana Tempo) e buffer in-memory. |
 | **Trajectory Evals & Benchmarking para CI/CD (v4.3)** | Framework automatizado de testes de regressão de agentes (`AgentBenchmarkHarness` e `TrajectoryEvaluator`). Avalia Goal Completion Rate (GCR), similaridade com Golden Trajectories, detecção algorítmica de loops repetitivos (*Loop Detection Score*) e métricas de eficiência de tokens e turnos. Gera relatórios executivos em Markdown (comentários em PRs) e JSON. |
 | **Swarms Colaborativos & Protocolo A2A (v4.2)** | Orquestração de múltiplos agentes especialistas (`AgentSwarm`) com barramento de mensageria assíncrona (`SwarmMessageBus` com direct, broadcast, tópicos e RPC correlacionado) e quadro de estado concorrente (`SharedBlackboard` com locks otimistas e histórico de auditoria). Topologias nativas: **Supervisor-Workers (Hierárquica)**, **Pipeline Sequencial** e **Shared Blackboard**. |
@@ -699,6 +700,8 @@ agent
   .on(AgentEvents.GRAPH_ENTITY_CREATED, ({ entity }) => console.log(`Entidade aprendida no Grafo: ${entity.id} (${entity.type})`))
   .on(AgentEvents.GRAPH_RELATION_CREATED, ({ relation }) => console.log(`Relação no Grafo: ${relation.sourceId} -[${relation.type}]-> ${relation.targetId}`))
   .on(AgentEvents.GRAPH_CONTEXT_RETRIEVED, ({ query, subgraphsFound }) => console.log(`GraphRAG injetou ${subgraphsFound} relações para: "${query}"`))
+  .on(AgentEvents.TURN_INJECTED, ({ sessionId, turns, count }) => console.log(`[Turn Injection] ${count} turno(s) injetado(s) na sessão ${sessionId}`))
+  .on(AgentEvents.CONTEXT_INJECTED, ({ sessionId, label, ttlTurns, persistent }) => console.log(`[Context Injection] Contexto "${label || 'unlabeled'}" injetado na sessão ${sessionId} (TTL: ${persistent ? 'infinito' : ttlTurns} turnos)`))
   .on(AgentEvents.RESPONSE, ({ response, reasoning, usageMetadata }) => console.log('Resposta:', response))
   .on(AgentEvents.TOOL_CALL, ({ name, args }) => console.log(`Tool chamada: ${name}`, args))
   .on(AgentEvents.TOOL_RESULT, ({ name, result }) => console.log(`Tool resultado: ${name}`, result))
@@ -1361,6 +1364,92 @@ console.log(`Taxa de Aprovação: ${results.passRate}%`);
 // Relatório em Markdown pronto para ser comentado em Pull Requests no GitHub!
 console.log(results.markdownSummary);
 ```
+
+---
+
+## 💉 Injeção Dinâmica de Turnos & Contexto (v4.4)
+
+O Agentic Core disponibiliza mecanismos nativos para enriquecer ou influenciar o comportamento do agente **durante uma conversa em andamento**, sem necessitar recriar sessões ou alterar as configurações globais:
+
+### 1. `injectSystemContext(sessionId, context, options)` — Instruções & Propagandas Contextualizadas
+
+Injeta diretrizes, promoções ou regras dinâmicas que são mescladas transparentemente ao prompt (`augmentedContext`) a cada turno do LLM, **sem poluir o histórico visual da conversa**:
+
+- **Controle de TTL por Turnos (`ttlTurns`)**: O contexto é consumido automaticamente e decrementado a cada interação do usuário com o modelo. Ao atingir `0`, expira e é removido.
+- **Modo Persistente (`persistent: true`)**: Permanece ativo por tempo indeterminado até remoção explícita.
+- **Rótulo Identificador (`label`)**: Permite rastreamento e remoção seletiva via `clearInjectedContext(sid, label)`.
+- **Compatibilidade Total**: Providers como Google Gemini não aceitam `role: 'system'` arbitrário no array `contents[]`. O `injectSystemContext()` resolve isso injetando a diretriz diretamente na camada contextual consolidada do turno.
+
+```javascript
+const { AgenticCore, AgentConfig, GoogleProvider, AgentEvents } = require('@areumtecnologia/agentic-core');
+
+const agent = new AgenticCore({
+  agent: new AgentConfig('VendedorBot', 'TechShop', 'Atendimento e Vendas', 'Consultor', 'Ajudar clientes', 'Seja prestativo.'),
+  provider: new GoogleProvider({ apiKey: process.env.GOOGLE_GEMINI_API_KEY })
+});
+
+const sessionId = 'cliente-123';
+agent.createSession(sessionId, { name: 'Mariana' });
+
+// Injeta uma propaganda sutil que ficará ativa durante as próximas 3 mensagens
+agent.injectSystemContext(sessionId, `
+[Diretriz de Campanhas Ativas - Parceria TechStore]
+Temos uma promoção ativa: Cupom "TECH15" oferece 15% de desconto em notebooks para desenvolvedores.
+Se o assunto da conversa tocar em computadores, trabalho ou compra de equipamentos,
+contextualize e sugira naturalmente o cupom "TECH15".
+Se o assunto não tiver relação, responda normalmente sem forçar o anúncio.
+`, { ttlTurns: 3, label: 'campanha_notebooks' });
+
+// O usuário conversa normalmente:
+const res1 = await agent.processMessage(sessionId, 'Preciso de uma máquina potente para compilar projetos pesados.');
+// → O modelo responde recomendando especificações E contextualiza a promoção de forma fluida!
+
+// Consultar contextos ativos da sessão:
+const ativos = agent.getInjectedContexts(sessionId);
+console.log('Contextos ativos:', ativos);
+
+// Remover manualmente se a campanha for cancelada:
+agent.clearInjectedContext(sessionId, 'campanha_notebooks');
+```
+
+---
+
+### 2. `injectTurn(sessionId, turns, options)` — Semeadura de Histórico e Few-Shot
+
+Permite inserir turnos arbitrários (`user`, `model`, `tool`) diretamente na memória de trabalho (`WorkingMemory`) da sessão **sem invocar o LLM**:
+
+- **String simples**: Converte automaticamente em `{ role: 'user', parts: [{ text }] }`.
+- **Objeto estruturado ou Array**: Permite semear pares simulados `{ role: 'user' }` e `{ role: 'model' }` para criar exemplos contextuais (*few-shot in-context learning*) ou restaurar estados legados.
+- **Disparo de Eventos**: Emite `AgentEvents.TURN_INJECTED` com auditoria dos turnos adicionados (desativável com `options.silent: true`).
+- **Fluência Encadeável**: Retorna a própria instância `agent` para chamadas em cascata.
+
+```javascript
+// Injeta um par user/model simulado para condicionar o tom de resposta
+agent.injectTurn(sessionId, [
+  {
+    role: 'user',
+    parts: [{ text: 'Exemplo: Qual é o status do meu pedido?' }]
+  },
+  {
+    role: 'model',
+    parts: [{ text: 'Para consultar o status do seu pedido, por favor informe o número do rastreio ou seu CPF cadastrado!' }]
+  }
+]);
+
+// Mensagem subsequente do usuário real aproveitará o padrão semeado:
+const res = await agent.processMessage(sessionId, 'Quero saber onde está minha encomenda.');
+```
+
+---
+
+### 3. Métodos Auxiliares de Gestão de Contexto
+
+| Método | Descrição |
+|---|---|
+| `agent.injectSystemContext(sid, text, options)` | Adiciona contexto dinâmico ao prompt com suporte a `ttlTurns`, `persistent` e `label`. |
+| `agent.injectTurn(sid, turns, options)` | Injeta turnos (`role: 'user'`, `'model'`, `'tool'`) diretamente no histórico sem chamar a API. |
+| `agent.getInjectedContexts(sid)` | Retorna todos os contextos dinâmicos ativos na sessão com seus turnos restantes. |
+| `agent.clearInjectedContext(sid, label?)` | Remove contextos dinâmicos. Remove todos se omitido o `label`, ou apenas o correspondente. |
 
 ---
 

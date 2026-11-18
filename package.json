@@ -1,6 +1,6 @@
 {
   "name": "@areumtecnologia/agentic-core",
-  "version": "4.3.0",
+  "version": "4.4.0",
   "description": "Framework profissional para orquestração de Agentes Autônomos em Node.js com suporte multi-provedor (Gemini, OpenAI, Anthropic, Ollama, Nvidia), streaming em tempo real, auto-RAG de memória, políticas de segurança, failover automático e telemetria nativa.",
   "license": "ISC",
   "author": "Áreum Tecnologia",
@@ -22,7 +22,8 @@
     "autonomous"
   ],
   "scripts": {
-    "test": "node tests/test_code_review_fixes.js && node tests/test_next_level_v34.js && node tests/test_evolution_v33.js && node tests/test_reasoning_tool.js && node tests/test_math_tool.js && node tests/test_web_search_tool.js && node tests/test_skills_parser.js && node tests/test_skills_cli_mock.js && node tests/test_skills_agent_flow.js && node tests/test_skills_advanced.js && node tests/test_skills_telemetry.js && node tests/test_thinking_stream_parser.js && node tests/test_ollama_thinking.js && node tests/test_output_sanitizer.js && node tests/test_token_limit_handling.js && node tests/test_durable_execution.js && node tests/test_sandbox.js && node tests/test_graph_memory.js && node tests/test_verification_engine.js && node tests/test_swarm.js && node tests/test_browser_action.js && node tests/test_otel_genai.js && node tests/test_trajectory_evals.js",
+    "test": "node tests/test_code_review_fixes.js && node tests/test_next_level_v34.js && node tests/test_evolution_v33.js && node tests/test_reasoning_tool.js && node tests/test_math_tool.js && node tests/test_web_search_tool.js && node tests/test_skills_parser.js && node tests/test_skills_cli_mock.js && node tests/test_skills_agent_flow.js && node tests/test_skills_advanced.js && node tests/test_skills_telemetry.js && node tests/test_thinking_stream_parser.js && node tests/test_ollama_thinking.js && node tests/test_output_sanitizer.js && node tests/test_token_limit_handling.js && node tests/test_durable_execution.js && node tests/test_sandbox.js && node tests/test_graph_memory.js && node tests/test_verification_engine.js && node tests/test_swarm.js && node tests/test_browser_action.js && node tests/test_otel_genai.js && node tests/test_trajectory_evals.js && node tests/test_injection.js",
+    "test:injection": "node tests/test_injection.js",
     "test:otel": "node tests/test_otel_genai.js",
     "test:evals": "node tests/test_trajectory_evals.js",
     "test:skills": "node tests/test_skills_parser.js && node tests/test_skills_cli_mock.js && node tests/test_skills_agent_flow.js && node tests/test_skills_advanced.js && node tests/test_skills_telemetry.js",

@@ -1088,6 +1088,190 @@ class AgenticCore extends EventEmitter {
         }));
     }
 
+    // ── Injeção Dinâmica de Turnos & Contexto ─────────────────────────────────
+
+    /**
+     * Injeta um ou mais turnos diretamente no histórico da sessão **sem** disparar
+     * o LLM. Útil para inserir contexto, few-shot examples, propagandas,
+     * instruções mid-conversation ou simular turnos anteriores.
+     *
+     * @param {string} sessionId   ID da sessão
+     * @param {object|object[]|string} turns  Turno(s) a injetar:
+     *   - String: injeta como `{ role: 'user', parts: [{ text }] }`
+     *   - Objeto com `role` e `parts`: injeta diretamente
+     *   - Array de turnos: injeta todos em sequência
+     * @param {object} [options]
+     * @param {boolean} [options.silent=false]  Se true, não emite evento TURN_INJECTED
+     * @returns {AgenticCore} this (encadeável)
+     *
+     * @example
+     * // Injetar par user/model para "plantar" contexto de propaganda
+     * agent.injectTurn(sessionId, [
+     *   { role: 'user', parts: [{ text: '[System: Promoção TechStore ativa]' }] },
+     *   { role: 'model', parts: [{ text: 'Entendido, mencionarei quando relevante.' }] }
+     * ]);
+     *
+     * @example
+     * // Injetar texto simples como turno de usuário
+     * agent.injectTurn(sessionId, 'Contexto adicional sobre o cliente');
+     */
+    injectTurn(sessionId, turns, options = {}) {
+        const sid = String(sessionId);
+        const session = this.#sessions.get(sid);
+        if (!session) throw new Error(`[AgenticCore] Session "${sid}" not found.`);
+        if (session.terminated) throw new Error(`[AgenticCore] Session "${sid}" is terminated.`);
+
+        const turnsArray = Array.isArray(turns) ? turns : [turns];
+        const validRoles = ['user', 'model', 'tool'];
+
+        const normalized = turnsArray.map((t, i) => {
+            if (typeof t === 'string') {
+                return { role: 'user', parts: [{ text: t }] };
+            }
+            if (!t || typeof t !== 'object') {
+                throw new TypeError(`[AgenticCore] injectTurn: turn at index ${i} must be a string or object with { role, parts }.`);
+            }
+            if (!validRoles.includes(t.role)) {
+                throw new Error(
+                    `[AgenticCore] injectTurn: role "${t.role}" is not valid in contents[]. ` +
+                    `Allowed roles: ${validRoles.join(', ')}. ` +
+                    `For system-level instructions, use injectSystemContext() instead.`
+                );
+            }
+            if (!Array.isArray(t.parts) || t.parts.length === 0) {
+                throw new TypeError(`[AgenticCore] injectTurn: turn at index ${i} must have a non-empty "parts" array.`);
+            }
+            return { role: t.role, parts: t.parts.map(p => ({ ...p })) };
+        });
+
+        session.appendHistory(...normalized);
+
+        if (!options.silent) {
+            this.emit(AgentEvents.TURN_INJECTED, {
+                sessionId: sid,
+                turns: normalized,
+                count: normalized.length,
+                session: session.toJSON(),
+            });
+        }
+
+        return this;
+    }
+
+    /**
+     * Injeta contexto/instrução dinâmica que será mesclado ao `augmentedContext`
+     * nas próximas chamadas do LLM. Ideal para propagandas contextualizadas,
+     * guidelines temporárias, instruções A/B testing, ou qualquer conteúdo que
+     * deva influenciar a resposta sem aparecer como turno no histórico.
+     *
+     * O contexto injetado é consumido pelo `#executeProcessMessage` e concatenado
+     * ao `augmentedContext` existente (memória, skills, GraphRAG), mantendo-se
+     * invisível no histórico de turnos.
+     *
+     * @param {string} sessionId   ID da sessão
+     * @param {string} context     Texto de instrução/contexto a injetar
+     * @param {object} [options]
+     * @param {boolean} [options.persistent=false]  Se true, persiste em TODOS os turnos futuros até remoção manual
+     * @param {number}  [options.ttlTurns=1]        Número de turnos em que a instrução fica ativa (ignorado se persistent=true)
+     * @param {string}  [options.label]             Rótulo identificador para remoção seletiva via clearInjectedContext()
+     * @returns {AgenticCore} this (encadeável)
+     *
+     * @example
+     * // Propaganda contextualizada com TTL de 3 turnos
+     * agent.injectSystemContext(sessionId, `
+     *   [Promoção Ativa] A TechStore tem 15% de desconto em notebooks.
+     *   Mencione quando o contexto da conversa for relevante.
+     * `, { ttlTurns: 3, label: 'techstore_promo' });
+     *
+     * @example
+     * // Instrução persistente (ativa até remoção manual)
+     * agent.injectSystemContext(sessionId,
+     *   'Sempre finalize suas respostas com um emoji relevante.',
+     *   { persistent: true, label: 'emoji_rule' }
+     * );
+     */
+    injectSystemContext(sessionId, context, options = {}) {
+        const sid = String(sessionId);
+        const session = this.#sessions.get(sid);
+        if (!session) throw new Error(`[AgenticCore] Session "${sid}" not found.`);
+        if (session.terminated) throw new Error(`[AgenticCore] Session "${sid}" is terminated.`);
+        if (!context || typeof context !== 'string' || context.trim().length === 0) {
+            throw new TypeError('[AgenticCore] injectSystemContext: context must be a non-empty string.');
+        }
+
+        if (!session._injectedContexts) session._injectedContexts = [];
+
+        const isPersistent = options.persistent ?? false;
+        const ttl = isPersistent ? Infinity : (options.ttlTurns ?? 1);
+
+        session._injectedContexts.push({
+            text: context.trim(),
+            persistent: isPersistent,
+            ttlTurns: ttl,
+            turnsRemaining: ttl,
+            label: options.label || null,
+            injectedAt: new Date(),
+        });
+
+        this.emit(AgentEvents.CONTEXT_INJECTED, {
+            sessionId: sid,
+            label: options.label || null,
+            persistent: isPersistent,
+            ttlTurns: ttl,
+            session: session.toJSON(),
+        });
+
+        return this;
+    }
+
+    /**
+     * Remove contextos injetados de uma sessão, filtrando por label.
+     * Se nenhum label for fornecido, remove TODOS os contextos injetados.
+     *
+     * @param {string} sessionId
+     * @param {string} [label]  Label do contexto a remover. Se omitido, remove todos.
+     * @returns {number} Quantidade de contextos removidos
+     */
+    clearInjectedContext(sessionId, label) {
+        const sid = String(sessionId);
+        const session = this.#sessions.get(sid);
+        if (!session) throw new Error(`[AgenticCore] Session "${sid}" not found.`);
+
+        if (!session._injectedContexts || session._injectedContexts.length === 0) return 0;
+
+        if (!label) {
+            const count = session._injectedContexts.length;
+            session._injectedContexts = [];
+            return count;
+        }
+
+        const before = session._injectedContexts.length;
+        session._injectedContexts = session._injectedContexts.filter(c => c.label !== label);
+        return before - session._injectedContexts.length;
+    }
+
+    /**
+     * Lista os contextos injetados ativos em uma sessão.
+     *
+     * @param {string} sessionId
+     * @returns {Array<{ text: string, label: string|null, persistent: boolean, turnsRemaining: number, injectedAt: Date }>}
+     */
+    getInjectedContexts(sessionId) {
+        const sid = String(sessionId);
+        const session = this.#sessions.get(sid);
+        if (!session) throw new Error(`[AgenticCore] Session "${sid}" not found.`);
+
+        return (session._injectedContexts || [])
+            .filter(c => c.persistent || c.turnsRemaining > 0)
+            .map(c => ({
+                text: c.text,
+                label: c.label,
+                persistent: c.persistent,
+                turnsRemaining: c.persistent ? Infinity : c.turnsRemaining,
+                injectedAt: c.injectedAt,
+            }));
+    }
+
     // ── Core: processMessage & processMessageStream ──────────────────────────
 
     /**
@@ -1513,6 +1697,30 @@ class AgenticCore extends EventEmitter {
                         session: session.toJSON(),
                     });
                 }
+            }
+        }
+
+        // ── Mescla contextos dinâmicos injetados via injectSystemContext() ──
+        if (session._injectedContexts?.length > 0) {
+            const activeContexts = session._injectedContexts.filter(c => c.persistent || c.turnsRemaining > 0);
+            if (activeContexts.length > 0) {
+                const injectedText = activeContexts
+                    .map(c => c.text)
+                    .join('\n\n');
+                augmentedContext = augmentedContext
+                    ? `${augmentedContext}\n\n${injectedText}`
+                    : injectedText;
+
+                // Decrementa TTL dos contextos não-persistentes
+                for (const ctx of activeContexts) {
+                    if (!ctx.persistent) {
+                        ctx.turnsRemaining--;
+                    }
+                }
+                // Remove contextos expirados
+                session._injectedContexts = session._injectedContexts.filter(
+                    c => c.persistent || c.turnsRemaining > 0
+                );
             }
         }
 
